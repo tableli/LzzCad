@@ -1,0 +1,56 @@
+# Compilation outputs
+x64/
+Debug/
+Release/
+*.obj
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.exe
+*.dll
+*.manifest
+
+# IDE configuration
+.vs/
+*.sln.docstates
+*.suo
+*.user
+*.vcxproj.user
+
+# Qt build files
+moc_*.cpp
+uic_*.h
+qrc_*.cpp
+*.moc
+*.qm
+
+# CMake files
+CMakeCache.txt
+CMakeFiles/
+Makefile
+cmake_install.cmake
+*.cmake
+
+# OpenCASCADE cache
+*.occt
+*.occ
+
+# Visual Studio intermediate files
+ipch/
+*.tlog
+*.lastbuildstate
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+
+# Log files
+*.log
+
+# Resource files
+image/*.png
+image/*.jpg
+image/*.svg

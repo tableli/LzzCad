@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+***************************************************************************************************
+ Copyright (C) 2023 The Qt Company Ltd.
+ SPDX-License-Identifier: LicenseRef-Qt-Commercial OR LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only
+***************************************************************************************************
+-->
+<Project DefaultTargets="Build" ToolsVersion="16.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{D241B37C-F2D3-4E6C-B2F7-E4A1ED73A0BF}</ProjectGuid>
+    <Keyword>QtVS_v304</Keyword>
+    <WindowsTargetPlatformVersion Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">10.0.22000.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">10.0.22000.0</WindowsTargetPlatformVersion>
+    <QtMsBuild Condition="'$(QtMsBuild)'=='' OR !Exists('$(QtMsBuild)\qt.targets')">$(MSBuildProjectDirectory)\QtMsBuild</QtMsBuild>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v142</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>v142</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Condition="Exists('$(QtMsBuild)\qt_defaults.props')">
+    <Import Project="$(QtMsBuild)\qt_defaults.props" />
+  </ImportGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'" Label="QtSettings">
+    <QtInstall>msvc2017_64</QtInstall>
+    <QtModules>core;gui;widgets;network</QtModules>
+    <QtBuildConfig>debug</QtBuildConfig>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'" Label="QtSettings">
+    <QtInstall>msvc2017_64</QtInstall>
+    <QtModules>core;gui;widgets;network</QtModules>
+    <QtBuildConfig>release</QtBuildConfig>
+  </PropertyGroup>
+  <Target Name="QtMsBuildNotFound" BeforeTargets="CustomBuild;ClCompile" Condition="!Exists('$(QtMsBuild)\qt.targets') or !Exists('$(QtMsBuild)\qt.props')">
+    <Message Importance="High" Text="QtMsBuild: could not locate qt.targets, qt.props; project may not build correctly." />
+  </Target>
+  <ImportGroup Label="ExtensionSettings" />
+  <ImportGroup Label="Shared" />
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="$(QtMsBuild)\Qt.props" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="$(QtMsBuild)\Qt.props" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'">
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>E:\MyGithub\LzzCad\3rdparty\SARibbon;D:\OpenCASCADE-7.7.0-vc14-64\opencascade-7.7.0\inc;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>DRAWEXE.lib;TKXSDRAW.lib;TKXSBase.lib;TKXmlXCAF.lib;TKXmlTObj.lib;TKXmlL.lib;TKXml.lib;TKXMesh.lib;TKXDESTEP.lib;TKXDEIGES.lib;TKXDEDRAW.lib;TKXDECascade.lib;TKXDE.lib;TKXCAF.lib;TKVRML.lib;TKViewerTest.lib;TKVCAF.lib;TKV3d.lib;TKTopTest.lib;TKTopAlgo.lib;TKTObjDRAW.lib;TKTObj.lib;TKSTL.lib;TKSTEPBase.lib;TKSTEPAttr.lib;TKSTEP209.lib;TKSTEP.lib;TKStdL.lib;TKStd.lib;TKShHealing.lib;TKService.lib;TKRWMesh.lib;TKQADraw.lib;TKPrim.lib;TKOpenGlTest.lib;TKOpenGl.lib;TKOffset.lib;TKMeshVS.lib;TKMesh.lib;TKMath.lib;TKLCAF.lib;TKIVtkDraw.lib;TKIVtk.lib;TKIGES.lib;TKHLR.lib;TKGeomBase.lib;TKGeomAlgo.lib;TKG3d.lib;TKG2d.lib;TKFillet.lib;TKFeat.lib;TKExpress.lib;TKernel.lib;TKDraw.lib;TKDCAF.lib;TKD3DHostTest.lib;TKD3DHost.lib;TKCDF.lib;TKCAF.lib;TKBRep.lib;TKBool.lib;TKBO.lib;TKBinXCAF.lib;TKBinTObj.lib;TKBinL.lib;TKBin.lib;ExpToCasExe.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>D:\OpenCASCADE-7.7.0-vc14-64\opencascade-7.7.0\win64\vc14\libd</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'" Label="Configuration">
+    <ClCompile>
+      <TreatWChar_tAsBuiltInType>true</TreatWChar_tAsBuiltInType>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <Optimization>Disabled</Optimization>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)' == 'Release|x64'" Label="Configuration">
+    <ClCompile>
+      <TreatWChar_tAsBuiltInType>true</TreatWChar_tAsBuiltInType>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <DebugInformationFormat>None</DebugInformationFormat>
+      <Optimization>MaxSpeed</Optimization>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <QtRcc Include="LzzCad.qrc" />
+    <QtUic Include="LzzCad.ui" />
+    <QtMoc Include="LzzCad.h" />
+    <QtMoc Include="view.h" />
+    <QtMoc Include="ViewModel\OccViewModel.h" />
+    <QtMoc Include="View\PropertyPanel.h" />
+    <ClCompile Include="3rdparty\SARibbon\SARibbon.cpp" />
+    <ClCompile Include="LzzCad.cpp" />
+    <ClCompile Include="main.cpp" />
+    <ClCompile Include="view.cpp" />
+    <ClCompile Include="Model\GeometryModel.cpp" />
+    <ClCompile Include="ViewModel\OccViewModel.cpp" />
+    <ClCompile Include="View\PropertyPanel.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <QtMoc Include="3rdparty\SARibbon\SARibbon.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Command\Command.h" />
+    <ClInclude Include="Model\GeometryModel.h" />
+    <ClInclude Include="x64\Debug\uic\ui_LzzCad.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Condition="Exists('$(QtMsBuild)\qt.targets')">
+    <Import Project="$(QtMsBuild)\qt.targets" />
+  </ImportGroup>
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
