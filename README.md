@@ -50,11 +50,26 @@ your_api_key_here
 1. 在底部的 **AI Chat** 面板中输入问题
 2. AI 支持以下工具命令：
 
+### 文件操作
+
 | 命令 | 说明 | 示例 |
 |------|------|------|
 | `open_file` | 打开模型文件 | `打开 C:/models/part.step` |
 | `save_file` | 保存模型 | `保存到 C:/models/my_model.step` |
 | `clear` | 清除所有形状 | `清空所有模型` |
+
+### AI 草图绘制
+
+AI 可以根据你的描述自动绘制草图，支持以下绘图命令：
+
+| 命令 | 说明 | 参数 |
+|------|------|------|
+| `draw_point` | 绘制点 | `x`, `y` - 坐标 |
+| `draw_line` | 绘制直线 | `x1`, `y1`, `x2`, `y2` - 起点和终点坐标 |
+| `draw_circle` | 绘制圆 | `cx`, `cy` - 圆心坐标, `radius` - 半径 |
+| `draw_arc` | 绘制圆弧 | `cx`, `cy` - 圆心坐标, `radius` - 半径, `start_angle`, `sweep_angle` - 起始角度和扫掠角度 |
+| `draw_polyline` | 绘制多段线 | `points` - 点数组 |
+| `draw_polygon` | 绘制多边形 | `points` - 点数组 |
 
 3. 也可以直接聊天，AI 会根据上下文提供建模建议
 
@@ -66,6 +81,16 @@ AI: 请提供文件路径，例如：打开 C:/models/part.step
 You: 打开 E:/MyGithub/LzzCad/test/step/qiur20.step
 AI: 正在打开文件...
 System: Opening file E:/MyGithub/LzzCad/test/step/qiur20.step
+```
+
+**AI 绘制草图示例：**
+```
+You: 画一个笑脸
+AI: 正在绘制笑脸...
+System: 绘制脸 (Circle: center (0,0), radius 50)
+System: 绘制左眼 (Circle: center (-20,15), radius 8)
+System: 绘制右眼 (Circle: center (20,15), radius 8)
+System: 绘制微笑嘴巴 (Arc: center (0,-10), radius 25, start 210°, sweep 120°)
 ```
 
 ## 🛠️ 技术栈
