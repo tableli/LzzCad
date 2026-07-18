@@ -17,6 +17,7 @@
 #include <gp_Vec.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <set>
+#include<qdebug.h>
 #include "Model/GeometryModel.h"
 
 class OccViewModel;
@@ -38,7 +39,14 @@ public:
         CurAction3d_Sketch_DrawPoint,
         CurAction3d_Sketch_DrawLine,
         CurAction3d_Sketch_DrawCircle,
-        CurAction3d_Sketch_DrawArc
+        CurAction3d_Sketch_DrawArc,
+        CurAction3d_Primitive_CreateBox,
+        CurAction3d_Primitive_CreateSphere,
+        CurAction3d_Primitive_CreateCylinder,
+        CurAction3d_Primitive_CreateCone,
+        CurAction3d_Feature_Extrude,
+        CurAction3d_Feature_Revolve,
+        CurAction3d_Feature_Sweep
     };
 
 public:
@@ -62,6 +70,7 @@ public:
     bool isShapeVisible(const Handle(AIS_Shape)& shape);
     
     void transformShape(const Handle(AIS_Shape)& shape, double dx, double dy, double dz, double rx, double ry, double rz);
+    void updateViewer();
 
     // Sketch mode control
     void startSketchPointMode();
@@ -69,6 +78,26 @@ public:
     void startSketchCircleMode();
     void startSketchArcMode();
     void stopSketchMode();
+
+    // Primitive mode control
+    void startPrimitiveBoxMode();
+    void startPrimitiveSphereMode();
+    void startPrimitiveCylinderMode();
+    void startPrimitiveConeMode();
+    void stopPrimitiveMode();
+
+    // Feature mode control
+    void startExtrudeMode();
+    void stopExtrudeMode();
+    void startRevolveMode();
+    void stopRevolveMode();
+    void startSweepMode();
+    void stopSweepMode();
+
+protected:
+    void performExtrude(const Handle(AIS_Shape)& sketchShape);
+    void performRevolve(const Handle(AIS_Shape)& sketchShape);
+    void performSweep(const Handle(AIS_Shape)& profileShape, const Handle(AIS_Shape)& pathShape);
 
 signals:
     void selectionChanged(void);
@@ -142,6 +171,19 @@ protected:
     void finishSketchShape();
     void resetSketchState();
 
+    // Primitive creation helpers
+    void handlePrimitiveCreation(QMouseEvent* theEvent);
+    void handlePrimitiveMouseMove(QMouseEvent* theEvent);
+    void handleBoxCreation(const gp_Pnt& clickedPoint);
+    void updateBoxPreview(const gp_Pnt& mousePoint);
+    void handleSphereCreation(const gp_Pnt& clickedPoint);
+    void updateSpherePreview(const gp_Pnt& mousePoint);
+    void handleCylinderCreation(const gp_Pnt& clickedPoint);
+    void updateCylinderPreview(const gp_Pnt& mousePoint);
+    void handleConeCreation(const gp_Pnt& clickedPoint);
+    void updateConePreview(const gp_Pnt& mousePoint);
+    void createPrimitiveShape(const TopoDS_Shape& shape, ShapeType type);
+
     // Sketch point counter
     int m_sketchClickCount;
 
@@ -175,7 +217,24 @@ protected:
     gp_Pnt m_sketchPoint2;
     gp_Pnt m_sketchPoint3;
     bool m_sketchReverseArc;
-    
+
+    // Primitive creation state
+    enum PrimitivePhase {
+        PrimitivePhase_Start,
+        PrimitivePhase_Base,
+        PrimitivePhase_Height,
+        PrimitivePhase_Radius2
+    };
+    PrimitivePhase m_primitivePhase;
+    gp_Pnt m_primitivePoint1;
+    gp_Pnt m_primitivePoint2;
+    double m_primitiveRadius1;
+    double m_primitiveRadius2;
+    double m_primitiveHeight;
+
+    // Sweep mode state
+    Handle(AIS_Shape) m_sweepProfile;
+
 private:
     OccViewModel* m_viewModel = nullptr;
     CommandManager* m_commandManager = nullptr;

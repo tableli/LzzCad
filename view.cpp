@@ -4,9 +4,24 @@
 #include <QWheelEvent>
 #include <QStyleFactory>
 #include <QMenu>
+#include <QInputDialog>
+#include <QMessageBox>
+#include <QPushButton>
+#include <QFont>
+#include <QRadioButton>
+#include <QVBoxLayout>
+#include <QDialogButtonBox>
+#include <QLabel>
+#include <QDoubleSpinBox>
+#include <QDialog>
+#include <QComboBox>
 
 #include <OpenGl_GraphicDriver.hxx>
 #include <Aspect_DisplayConnection.hxx>
+#include <TopAbs.hxx>
+#include <TopoDS.hxx>
+#include <TopoDS_Wire.hxx>
+#include <TopoDS_Edge.hxx>
 #include <V3d_DirectionalLight.hxx>
 #include <V3d_AmbientLight.hxx>
 #include <V3d_TypeOfOrientation.hxx>
@@ -41,6 +56,10 @@
 #include <Geom_TrimmedCurve.hxx>
 #include <GC_MakeArcOfCircle.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <Bnd_Box.hxx>
+#include <BRepBndLib.hxx>
+#include <BRepOffsetAPI_MakePipe.hxx>
 #include <ElCLib.hxx>
 #include <Geom_Line.hxx>
 #include <Geom_Plane.hxx>
@@ -61,6 +80,12 @@
   #include <Xw_Window.hxx>
 #endif
 #include <BRepBuilderAPI_Transform.hxx>
+#include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepPrimAPI_MakeSphere.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
+#include <BRepPrimAPI_MakeCone.hxx>
+#include <BRepPrimAPI_MakePrism.hxx>
+#include <BRepPrimAPI_MakeRevol.hxx>
 
 static Handle(Graphic3d_GraphicDriver)& GetGraphicDriver()
 {
@@ -118,6 +143,13 @@ void OccView::displayShape(const Handle(AIS_Shape)& aisShape)
     aisShape->SetDisplayMode(AIS_Shaded);
     myContext->Display(aisShape, Standard_True);
     myContext->ClearSelected(Standard_False);
+    myContext->UpdateCurrentViewer();
+    myView->Redraw();
+}
+
+void OccView::updateViewer()
+{
+    if (myContext.IsNull()) return;
     myContext->UpdateCurrentViewer();
     myView->Redraw();
 }
@@ -516,6 +548,13 @@ void OccView::keyPressEvent(QKeyEvent* theEvent)
             myCurrentMode = CurAction3d_DynamicRotation;
             m_sketchClickCount = 0;
             setCursor(Qt::ArrowCursor);
+        } else if (myCurrentMode >= CurAction3d_Primitive_CreateBox &&
+                   myCurrentMode <= CurAction3d_Primitive_CreateCone) {
+            stopPrimitiveMode();
+        } else if (myCurrentMode == CurAction3d_Feature_Extrude) {
+            stopExtrudeMode();
+        } else if (myCurrentMode == CurAction3d_Feature_Revolve) {
+            stopRevolveMode();
         }
     }
     QWidget::keyPressEvent(theEvent);
@@ -603,6 +642,74 @@ void OccView::mousePressEvent(QMouseEvent* theEvent)
             break;
         }
 
+        return;
+    }
+
+    if (myCurrentMode >= CurAction3d_Primitive_CreateBox &&
+        myCurrentMode <= CurAction3d_Primitive_CreateCone) {
+        handlePrimitiveCreation(theEvent);
+        return;
+    }
+
+    if (myCurrentMode == CurAction3d_Feature_Extrude) {
+        if (theEvent->button() == Qt::LeftButton) {
+            myContext->MoveTo(theEvent->pos().x(), theEvent->pos().y(), myView, true);
+            
+            if (myContext->HasDetected()) {
+                Handle(AIS_InteractiveObject) detected = myContext->DetectedInteractive();
+                Handle(AIS_Shape) shape = Handle(AIS_Shape)::DownCast(detected);
+                
+                if (!shape.IsNull()) {
+                    performExtrude(shape);
+                    stopExtrudeMode();
+                }
+            }
+        } else if (theEvent->button() == Qt::RightButton) {
+            stopExtrudeMode();
+        }
+        return;
+    }
+
+    if (myCurrentMode == CurAction3d_Feature_Revolve) {
+        if (theEvent->button() == Qt::LeftButton) {
+            myContext->MoveTo(theEvent->pos().x(), theEvent->pos().y(), myView, true);
+            
+            if (myContext->HasDetected()) {
+                Handle(AIS_InteractiveObject) detected = myContext->DetectedInteractive();
+                Handle(AIS_Shape) shape = Handle(AIS_Shape)::DownCast(detected);
+                
+                if (!shape.IsNull()) {
+                    performRevolve(shape);
+                    stopRevolveMode();
+                }
+            }
+        } else if (theEvent->button() == Qt::RightButton) {
+            stopRevolveMode();
+        }
+        return;
+    }
+
+    if (myCurrentMode == CurAction3d_Feature_Sweep) {
+        if (theEvent->button() == Qt::LeftButton) {
+            myContext->MoveTo(theEvent->pos().x(), theEvent->pos().y(), myView, true);
+            
+            if (myContext->HasDetected()) {
+                Handle(AIS_InteractiveObject) detected = myContext->DetectedInteractive();
+                Handle(AIS_Shape) shape = Handle(AIS_Shape)::DownCast(detected);
+                
+                if (!shape.IsNull()) {
+                    if (m_sweepProfile.IsNull()) {
+                        m_sweepProfile = shape;
+                        qDebug() << "Sweep mode: Profile selected, now select path";
+                    } else {
+                        performSweep(m_sweepProfile, shape);
+                        stopSweepMode();
+                    }
+                }
+            }
+        } else if (theEvent->button() == Qt::RightButton) {
+            stopSweepMode();
+        }
         return;
     }
 
@@ -704,6 +811,12 @@ void OccView::mouseMoveEvent(QMouseEvent* theEvent)
             break;
         }
 
+        return;
+    }
+
+    if (myCurrentMode >= CurAction3d_Primitive_CreateBox &&
+        myCurrentMode <= CurAction3d_Primitive_CreateCone) {
+        handlePrimitiveMouseMove(theEvent);
         return;
     }
 
@@ -1283,4 +1396,838 @@ void OccView::init(void)
     
     Handle(Prs3d_Drawer) highlightStyle = myContext->HighlightStyle(Prs3d_TypeOfHighlight_Selected);
     highlightStyle->SetColor(Quantity_NOC_GREEN);
+}
+
+// ========================================
+// Primitive creation methods
+// ========================================
+
+void OccView::startPrimitiveBoxMode()
+{
+    myCurrentMode = CurAction3d_Primitive_CreateBox;
+    m_primitivePhase = PrimitivePhase_Start;
+    setCursor(Qt::CrossCursor);
+}
+
+void OccView::startPrimitiveSphereMode()
+{
+    myCurrentMode = CurAction3d_Primitive_CreateSphere;
+    m_primitivePhase = PrimitivePhase_Start;
+    setCursor(Qt::CrossCursor);
+}
+
+void OccView::startPrimitiveCylinderMode()
+{
+    myCurrentMode = CurAction3d_Primitive_CreateCylinder;
+    m_primitivePhase = PrimitivePhase_Start;
+    setCursor(Qt::CrossCursor);
+}
+
+void OccView::startPrimitiveConeMode()
+{
+    myCurrentMode = CurAction3d_Primitive_CreateCone;
+    m_primitivePhase = PrimitivePhase_Start;
+    setCursor(Qt::CrossCursor);
+}
+
+void OccView::stopPrimitiveMode()
+{
+    if (myCurrentMode >= CurAction3d_Primitive_CreateBox &&
+        myCurrentMode <= CurAction3d_Primitive_CreateCone) {
+        myCurrentMode = CurAction3d_DynamicRotation;
+        setCursor(Qt::ArrowCursor);
+        
+        if (!m_previewShape.IsNull()) {
+            myContext->Remove(m_previewShape, Standard_True);
+            m_previewShape.Nullify();
+        }
+    }
+}
+
+void OccView::startExtrudeMode()
+{
+    myCurrentMode = CurAction3d_Feature_Extrude;
+    setCursor(Qt::CrossCursor);
+    qDebug() << "Extrude mode: Select a sketch to extrude";
+}
+
+void OccView::stopExtrudeMode()
+{
+    if (myCurrentMode == CurAction3d_Feature_Extrude) {
+        myCurrentMode = CurAction3d_DynamicRotation;
+        setCursor(Qt::ArrowCursor);
+    }
+}
+
+void OccView::startRevolveMode()
+{
+    myCurrentMode = CurAction3d_Feature_Revolve;
+    setCursor(Qt::CrossCursor);
+    qDebug() << "Revolve mode: Select a sketch to revolve";
+}
+
+void OccView::stopRevolveMode()
+{
+    if (myCurrentMode == CurAction3d_Feature_Revolve) {
+        myCurrentMode = CurAction3d_DynamicRotation;
+        setCursor(Qt::ArrowCursor);
+    }
+}
+
+void OccView::startSweepMode()
+{
+    myCurrentMode = CurAction3d_Feature_Sweep;
+    m_sweepProfile.Nullify();
+    setCursor(Qt::CrossCursor);
+    qDebug() << "Sweep mode: First select profile, then select path";
+}
+
+void OccView::stopSweepMode()
+{
+    if (myCurrentMode == CurAction3d_Feature_Sweep) {
+        myCurrentMode = CurAction3d_DynamicRotation;
+        m_sweepProfile.Nullify();
+        setCursor(Qt::ArrowCursor);
+    }
+}
+
+void OccView::performSweep(const Handle(AIS_Shape)& profileShape, const Handle(AIS_Shape)& pathShape)
+{
+    TopoDS_Shape profile = profileShape->Shape();
+    TopoDS_Shape path = pathShape->Shape();
+
+    TopoDS_Wire profileWire;
+    if (profile.ShapeType() == TopAbs_WIRE) {
+        profileWire = TopoDS::Wire(profile);
+    } else if (profile.ShapeType() == TopAbs_EDGE) {
+        TopoDS_Edge edge = TopoDS::Edge(profile);
+        BRepBuilderAPI_MakeWire wireMaker(edge);
+        profileWire = TopoDS::Wire(wireMaker.Shape());
+    } else {
+        QMessageBox::warning(this, "Sweep Error", "Profile must be a wire or edge.", QMessageBox::Ok);
+        return;
+    }
+
+    TopoDS_Wire pathWire;
+    if (path.ShapeType() == TopAbs_WIRE) {
+        pathWire = TopoDS::Wire(path);
+    } else if (path.ShapeType() == TopAbs_EDGE) {
+        TopoDS_Edge edge = TopoDS::Edge(path);
+        BRepBuilderAPI_MakeWire wireMaker(edge);
+        pathWire = TopoDS::Wire(wireMaker.Shape());
+    } else {
+        QMessageBox::warning(this, "Sweep Error", "Path must be a wire or edge.", QMessageBox::Ok);
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle("Sweep Settings");
+    dialog.resize(350, 280);
+
+    QVBoxLayout* mainLayout = new QVBoxLayout(&dialog);
+    mainLayout->setSpacing(15);
+    mainLayout->setContentsMargins(30, 30, 30, 30);
+
+    QFont labelFont("Arial", 14);
+    QFont radioFont("Arial", 13);
+
+    QLabel* titleLabel = new QLabel("Choose Sweep Mode:", &dialog);
+    titleLabel->setFont(labelFont);
+    titleLabel->setStyleSheet("font-weight: bold; color: #333;");
+    mainLayout->addWidget(titleLabel);
+
+    QRadioButton* faceRadio = new QRadioButton("Sweep Face (Solid)", &dialog);
+    faceRadio->setFont(radioFont);
+    faceRadio->setChecked(true);
+    faceRadio->setStyleSheet("color: #333;");
+    mainLayout->addWidget(faceRadio);
+
+    QRadioButton* wireRadio = new QRadioButton("Sweep Wire (Surface)", &dialog);
+    wireRadio->setFont(radioFont);
+    wireRadio->setStyleSheet("color: #333;");
+    mainLayout->addWidget(wireRadio);
+
+    QDialogButtonBox* buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    QPushButton* okBtn = buttonBox->button(QDialogButtonBox::Ok);
+    QPushButton* cancelBtn = buttonBox->button(QDialogButtonBox::Cancel);
+    okBtn->setFont(QFont("Arial", 13));
+    cancelBtn->setFont(QFont("Arial", 13));
+    okBtn->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; padding: 8px 20px; border: none; border-radius: 6px; } QPushButton:hover { background-color: #45a049; }");
+    cancelBtn->setStyleSheet("QPushButton { background-color: #f44336; color: white; padding: 8px 20px; border: none; border-radius: 6px; } QPushButton:hover { background-color: #da190b; }");
+    mainLayout->addWidget(buttonBox);
+
+    connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    if (dialog.exec() == QDialog::Accepted) {
+        bool sweepFace = faceRadio->isChecked();
+
+        if (sweepFace) {
+            BRepBuilderAPI_MakeFace faceMaker(profileWire);
+            if (!faceMaker.IsDone()) {
+                QMessageBox::warning(this, "Sweep Error", "Cannot sweep face because the profile is not closed.", QMessageBox::Ok);
+                return;
+            }
+            profile = faceMaker.Shape();
+        }
+
+        BRepOffsetAPI_MakePipe pipeMaker(pathWire, profile);
+        if (!pipeMaker.IsDone()) {
+            QMessageBox::warning(this, "Sweep Error", "Failed to create sweep.", QMessageBox::Ok);
+            return;
+        }
+
+        TopoDS_Shape sweptShape = pipeMaker.Shape();
+
+        if (!sweptShape.IsNull()) {
+            Handle(AIS_Shape) aisShape = new AIS_Shape(sweptShape);
+            aisShape->SetColor(Quantity_NOC_YELLOW);
+            aisShape->SetDisplayMode(AIS_Shaded);
+            myContext->Display(aisShape, Standard_True);
+
+            if (m_commandManager) {
+                m_commandManager->executeCommand(new DisplayShapeCommand(myContext, aisShape, "Sweep"));
+            }
+
+            emit shapeCreated(aisShape, ShapeType::Sweep);
+        }
+    }
+}
+
+void OccView::performExtrude(const Handle(AIS_Shape)& sketchShape)
+{
+    TopoDS_Shape basisShape = sketchShape->Shape();
+    
+    QDialog dialog(this);
+    dialog.setWindowTitle("Extrude Settings");
+    dialog.resize(350, 250);
+    
+    QVBoxLayout* mainLayout = new QVBoxLayout(&dialog);
+    mainLayout->setSpacing(20);
+    mainLayout->setContentsMargins(30, 30, 30, 30);
+    
+    QFont labelFont("Arial", 14);
+    QFont radioFont("Arial", 13);
+    QFont spinFont("Arial", 14);
+    
+    QLabel* titleLabel = new QLabel("Choose Extrude Mode:", &dialog);
+    titleLabel->setFont(labelFont);
+    titleLabel->setStyleSheet("font-weight: bold; color: #333;");
+    mainLayout->addWidget(titleLabel);
+    
+    QRadioButton* faceRadio = new QRadioButton("Extrude Face (Solid)", &dialog);
+    faceRadio->setFont(radioFont);
+    faceRadio->setChecked(true);
+    faceRadio->setStyleSheet("color: #333;");
+    mainLayout->addWidget(faceRadio);
+    
+    QRadioButton* wireRadio = new QRadioButton("Extrude Wire (Surface)", &dialog);
+    wireRadio->setFont(radioFont);
+    wireRadio->setStyleSheet("color: #333;");
+    mainLayout->addWidget(wireRadio);
+    
+    QLabel* heightLabel = new QLabel("Extrude Height:", &dialog);
+    heightLabel->setFont(labelFont);
+    heightLabel->setStyleSheet("font-weight: bold; color: #333;");
+    mainLayout->addWidget(heightLabel);
+    
+    QDoubleSpinBox* heightSpin = new QDoubleSpinBox(&dialog);
+    heightSpin->setFont(spinFont);
+    heightSpin->setRange(-1000.0, 1000.0);
+    heightSpin->setValue(5.0);
+    heightSpin->setDecimals(3);
+    heightSpin->setFixedHeight(35);
+    heightSpin->setStyleSheet("QDoubleSpinBox { padding: 5px; border: 2px solid #ccc; border-radius: 6px; }");
+    mainLayout->addWidget(heightSpin);
+    
+    QDialogButtonBox* buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    QPushButton* okBtn = buttonBox->button(QDialogButtonBox::Ok);
+    QPushButton* cancelBtn = buttonBox->button(QDialogButtonBox::Cancel);
+    okBtn->setFont(QFont("Arial", 13));
+    cancelBtn->setFont(QFont("Arial", 13));
+    okBtn->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; padding: 8px 20px; border: none; border-radius: 6px; } QPushButton:hover { background-color: #45a049; }");
+    cancelBtn->setStyleSheet("QPushButton { background-color: #f44336; color: white; padding: 8px 20px; border: none; border-radius: 6px; } QPushButton:hover { background-color: #da190b; }");
+    mainLayout->addWidget(buttonBox);
+    
+    connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    
+    if (dialog.exec() == QDialog::Accepted) {
+        bool extrudeFace = faceRadio->isChecked();
+        
+        if (extrudeFace) {
+            TopoDS_Wire wire;
+            if (basisShape.ShapeType() == TopAbs_WIRE) {
+                wire = TopoDS::Wire(basisShape);
+            } else if (basisShape.ShapeType() == TopAbs_EDGE) {
+                TopoDS_Edge edge = TopoDS::Edge(basisShape);
+                BRepBuilderAPI_MakeWire wireMaker(edge);
+                wire = TopoDS::Wire(wireMaker.Shape());
+            } else {
+                QMessageBox::warning(this, "Extrude Error", "Cannot create face from this shape type.", QMessageBox::Ok);
+                return;
+            }
+            
+            BRepBuilderAPI_MakeFace faceMaker(wire);
+            if (!faceMaker.IsDone()) {
+                QMessageBox::warning(this, "Extrude Error", "Cannot extrude face because the sketch is not closed.", QMessageBox::Ok);
+                return;
+            }
+            basisShape = faceMaker.Shape();
+        }
+        
+        double height = heightSpin->value();
+        double absHeight = fabs(height);
+        if (absHeight < 0.001) absHeight = 0.001;
+        
+        gp_Vec vec(0, 0, height);
+        
+        TopoDS_Shape extrudedShape = BRepPrimAPI_MakePrism(basisShape, vec).Shape();
+        
+        if (!extrudedShape.IsNull()) {
+            Handle(AIS_Shape) aisShape = new AIS_Shape(extrudedShape);
+            aisShape->SetColor(Quantity_NOC_YELLOW);
+            aisShape->SetDisplayMode(AIS_Shaded);
+            myContext->Display(aisShape, Standard_True);
+            
+            if (m_commandManager) {
+                m_commandManager->executeCommand(new DisplayShapeCommand(myContext, aisShape, "Extrude"));
+            }
+            
+            emit shapeCreated(aisShape, ShapeType::Extrude);
+        }
+    }
+}
+
+void OccView::performRevolve(const Handle(AIS_Shape)& sketchShape)
+{
+    TopoDS_Shape basisShape = sketchShape->Shape();
+    
+    QDialog dialog(this);
+    dialog.setWindowTitle("Revolve Settings");
+    dialog.resize(350, 320);
+    
+    QVBoxLayout* mainLayout = new QVBoxLayout(&dialog);
+    mainLayout->setSpacing(15);
+    mainLayout->setContentsMargins(30, 30, 30, 30);
+    
+    QFont labelFont("Arial", 14);
+    QFont radioFont("Arial", 13);
+    QFont spinFont("Arial", 14);
+    
+    QLabel* titleLabel = new QLabel("Choose Revolve Mode:", &dialog);
+    titleLabel->setFont(labelFont);
+    titleLabel->setStyleSheet("font-weight: bold; color: #333;");
+    mainLayout->addWidget(titleLabel);
+    
+    QRadioButton* faceRadio = new QRadioButton("Revolve Face (Solid)", &dialog);
+    faceRadio->setFont(radioFont);
+    faceRadio->setChecked(true);
+    faceRadio->setStyleSheet("color: #333;");
+    mainLayout->addWidget(faceRadio);
+    
+    QRadioButton* wireRadio = new QRadioButton("Revolve Wire (Surface)", &dialog);
+    wireRadio->setFont(radioFont);
+    wireRadio->setStyleSheet("color: #333;");
+    mainLayout->addWidget(wireRadio);
+    
+    QLabel* axisLabel = new QLabel("Rotation Axis:", &dialog);
+    axisLabel->setFont(labelFont);
+    axisLabel->setStyleSheet("font-weight: bold; color: #333;");
+    mainLayout->addWidget(axisLabel);
+    
+    QComboBox* axisCombo = new QComboBox(&dialog);
+    axisCombo->setFont(spinFont);
+    axisCombo->addItem("X Axis");
+    axisCombo->addItem("Y Axis");
+    axisCombo->addItem("Z Axis");
+    axisCombo->setFixedHeight(35);
+    axisCombo->setStyleSheet("QComboBox { padding: 5px; border: 2px solid #ccc; border-radius: 6px; }");
+    mainLayout->addWidget(axisCombo);
+    
+    QLabel* angleLabel = new QLabel("Rotation Angle (degrees):", &dialog);
+    angleLabel->setFont(labelFont);
+    angleLabel->setStyleSheet("font-weight: bold; color: #333;");
+    mainLayout->addWidget(angleLabel);
+    
+    QDoubleSpinBox* angleSpin = new QDoubleSpinBox(&dialog);
+    angleSpin->setFont(spinFont);
+    angleSpin->setRange(0.1, 360.0);
+    angleSpin->setValue(360.0);
+    angleSpin->setDecimals(1);
+    angleSpin->setFixedHeight(35);
+    angleSpin->setStyleSheet("QDoubleSpinBox { padding: 5px; border: 2px solid #ccc; border-radius: 6px; }");
+    mainLayout->addWidget(angleSpin);
+    
+    QDialogButtonBox* buttonBox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    QPushButton* okBtn = buttonBox->button(QDialogButtonBox::Ok);
+    QPushButton* cancelBtn = buttonBox->button(QDialogButtonBox::Cancel);
+    okBtn->setFont(QFont("Arial", 13));
+    cancelBtn->setFont(QFont("Arial", 13));
+    okBtn->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; padding: 8px 20px; border: none; border-radius: 6px; } QPushButton:hover { background-color: #45a049; }");
+    cancelBtn->setStyleSheet("QPushButton { background-color: #f44336; color: white; padding: 8px 20px; border: none; border-radius: 6px; } QPushButton:hover { background-color: #da190b; }");
+    mainLayout->addWidget(buttonBox);
+    
+    connect(buttonBox, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttonBox, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    
+    if (dialog.exec() == QDialog::Accepted) {
+        bool revolveFace = faceRadio->isChecked();
+        
+        if (revolveFace) {
+            TopoDS_Wire wire;
+            if (basisShape.ShapeType() == TopAbs_WIRE) {
+                wire = TopoDS::Wire(basisShape);
+            } else if (basisShape.ShapeType() == TopAbs_EDGE) {
+                TopoDS_Edge edge = TopoDS::Edge(basisShape);
+                BRepBuilderAPI_MakeWire wireMaker(edge);
+                wire = TopoDS::Wire(wireMaker.Shape());
+            } else {
+                QMessageBox::warning(this, "Revolve Error", "Cannot create face from this shape type.", QMessageBox::Ok);
+                return;
+            }
+            
+            BRepBuilderAPI_MakeFace faceMaker(wire);
+            if (!faceMaker.IsDone()) {
+                QMessageBox::warning(this, "Revolve Error", "Cannot revolve face because the sketch is not closed.", QMessageBox::Ok);
+                return;
+            }
+            basisShape = faceMaker.Shape();
+        }
+        
+        int axisIndex = axisCombo->currentIndex();
+        gp_Dir axisDir;
+        if (axisIndex == 0) axisDir = gp_Dir(1, 0, 0);
+        else if (axisIndex == 1) axisDir = gp_Dir(0, 1, 0);
+        else axisDir = gp_Dir(0, 0, 1);
+        
+        double angleDeg = angleSpin->value();
+        double angleRad = angleDeg * M_PI / 180.0;
+        
+        gp_Ax1 axis(gp_Pnt(0, 0, 0), axisDir);
+        
+        Bnd_Box bbox;
+        BRepBndLib::Add(basisShape, bbox);
+        Standard_Real xmin, ymin, zmin, xmax, ymax, zmax;
+        bbox.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+        
+        bool intersectsAxis = false;
+        if (axisIndex == 0) {
+            if (ymin <= 0.0 && ymax >= 0.0) {
+                intersectsAxis = true;
+            }
+        } else if (axisIndex == 1) {
+            if (xmin <= 0.0 && xmax >= 0.0) {
+                intersectsAxis = true;
+            }
+        } else {
+            if ((xmin <= 0.0 && xmax >= 0.0) && (ymin <= 0.0 && ymax >= 0.0)) {
+                intersectsAxis = true;
+            }
+        }
+        
+        if (revolveFace && intersectsAxis) {
+            QMessageBox::warning(this, "Revolve Error", "The sketch intersects the rotation axis. Cannot revolve face around intersecting axis.", QMessageBox::Ok);
+            return;
+        }
+        
+        TopoDS_Shape revolvedShape;
+        if (fabs(angleDeg - 360.0) < 0.1) {
+            revolvedShape = BRepPrimAPI_MakeRevol(basisShape, axis).Shape();
+        } else {
+            revolvedShape = BRepPrimAPI_MakeRevol(basisShape, axis, angleRad).Shape();
+        }
+        
+        if (!revolvedShape.IsNull()) {
+            Handle(AIS_Shape) aisShape = new AIS_Shape(revolvedShape);
+            aisShape->SetColor(Quantity_NOC_YELLOW);
+            aisShape->SetDisplayMode(AIS_Shaded);
+            myContext->Display(aisShape, Standard_True);
+            
+            if (m_commandManager) {
+                m_commandManager->executeCommand(new DisplayShapeCommand(myContext, aisShape, "Revolve"));
+            }
+            
+            emit shapeCreated(aisShape, ShapeType::Revolve);
+        }
+    }
+}
+
+void OccView::handlePrimitiveCreation(QMouseEvent* theEvent)
+{
+    if (myCurrentMode < CurAction3d_Primitive_CreateBox ||
+        myCurrentMode > CurAction3d_Primitive_CreateCone) {
+        return;
+    }
+
+    if (theEvent->button() == Qt::LeftButton) {
+        gp_Pnt clickedPoint = convertScreenToWorld(theEvent->pos());
+        clickedPoint.SetZ(0.0);
+
+        switch (myCurrentMode) {
+        case CurAction3d_Primitive_CreateBox:
+            handleBoxCreation(clickedPoint);
+            break;
+        case CurAction3d_Primitive_CreateSphere:
+            handleSphereCreation(clickedPoint);
+            break;
+        case CurAction3d_Primitive_CreateCylinder:
+            handleCylinderCreation(clickedPoint);
+            break;
+        case CurAction3d_Primitive_CreateCone:
+            handleConeCreation(clickedPoint);
+            break;
+        }
+    } else if (theEvent->button() == Qt::RightButton) {
+        stopPrimitiveMode();
+    }
+}
+
+void OccView::handlePrimitiveMouseMove(QMouseEvent* theEvent)
+{
+    if (myCurrentMode < CurAction3d_Primitive_CreateBox ||
+        myCurrentMode > CurAction3d_Primitive_CreateCone) {
+        return;
+    }
+
+    gp_Pnt mousePoint = convertScreenToWorld(theEvent->pos());
+    mousePoint.SetZ(0.0);
+
+    switch (myCurrentMode) {
+    case CurAction3d_Primitive_CreateBox:
+        updateBoxPreview(mousePoint);
+        break;
+    case CurAction3d_Primitive_CreateSphere:
+        updateSpherePreview(mousePoint);
+        break;
+    case CurAction3d_Primitive_CreateCylinder:
+        updateCylinderPreview(mousePoint);
+        break;
+    case CurAction3d_Primitive_CreateCone:
+        updateConePreview(mousePoint);
+        break;
+    }
+}
+
+void OccView::handleBoxCreation(const gp_Pnt& clickedPoint)
+{
+    switch (m_primitivePhase) {
+    case PrimitivePhase_Start:
+        m_primitivePoint1 = clickedPoint;
+        m_primitivePhase = PrimitivePhase_Base;
+        break;
+    case PrimitivePhase_Base: {
+        m_primitivePoint2 = clickedPoint;
+        
+        double dx = fabs(m_primitivePoint2.X() - m_primitivePoint1.X());
+        double dy = fabs(m_primitivePoint2.Y() - m_primitivePoint1.Y());
+        
+        if (dx < 0.001) dx = 0.001;
+        if (dy < 0.001) dy = 0.001;
+
+        QInputDialog dialog(this);
+        dialog.setWindowTitle("Enter Box Height");
+        dialog.setLabelText(QString("Width: %1, Depth: %2\nEnter Height:").arg(dx, 0, 'f', 3).arg(dy, 0, 'f', 3));
+        dialog.setDoubleRange(-1000.0, 1000.0);
+        dialog.setDoubleValue(std::max(dx, dy));
+        dialog.setDoubleDecimals(3);
+        dialog.setStyleSheet("QInputDialog { font-size: 14px; } QLabel { font-size: 14px; font-weight: bold; } QDoubleSpinBox { font-size: 14px; }");
+        
+        if (dialog.exec() == QDialog::Accepted) {
+            double dz = dialog.doubleValue();
+            double absDz = fabs(dz);
+            if (absDz < 0.001) absDz = 0.001;
+            
+            double x = std::min(m_primitivePoint1.X(), m_primitivePoint2.X());
+            double y = std::min(m_primitivePoint1.Y(), m_primitivePoint2.Y());
+            double z = (dz < 0) ? dz : 0.0;
+
+            TopoDS_Shape box = BRepPrimAPI_MakeBox(gp_Pnt(x, y, z), dx, dy, absDz).Shape();
+            createPrimitiveShape(box, ShapeType::Box);
+        }
+        
+        stopPrimitiveMode();
+        break;
+    }
+    case PrimitivePhase_Height:
+        break;
+    }
+}
+
+void OccView::updateBoxPreview(const gp_Pnt& mousePoint)
+{
+    if (m_primitivePhase == PrimitivePhase_Base) {
+        double dx = fabs(mousePoint.X() - m_primitivePoint1.X());
+        double dy = fabs(mousePoint.Y() - m_primitivePoint1.Y());
+        
+        if (dx < 0.001) dx = 0.001;
+        if (dy < 0.001) dy = 0.001;
+
+        double x = std::min(m_primitivePoint1.X(), mousePoint.X());
+        double y = std::min(m_primitivePoint1.Y(), mousePoint.Y());
+
+        if (!m_previewShape.IsNull()) {
+            myContext->Remove(m_previewShape, Standard_True);
+        }
+        
+        TopoDS_Shape box = BRepPrimAPI_MakeBox(gp_Pnt(x, y, 0), dx, dy, 0.001).Shape();
+        m_previewShape = new AIS_Shape(box);
+        m_previewShape->SetColor(Quantity_NOC_CYAN1);
+        m_previewShape->SetTransparency(0.5);
+        myContext->Display(m_previewShape, Standard_True);
+        myContext->UpdateCurrentViewer();
+        myView->Redraw();
+    } else if (m_primitivePhase == PrimitivePhase_Height) {
+        double dx = fabs(m_primitivePoint2.X() - m_primitivePoint1.X());
+        double dy = fabs(m_primitivePoint2.Y() - m_primitivePoint1.Y());
+        double dz = fabs(mousePoint.Z());
+        
+        if (dx < 0.001) dx = 0.001;
+        if (dy < 0.001) dy = 0.001;
+        if (dz < 0.001) dz = 0.001;
+
+        double x = std::min(m_primitivePoint1.X(), m_primitivePoint2.X());
+        double y = std::min(m_primitivePoint1.Y(), m_primitivePoint2.Y());
+        double z = 0.0;
+
+        if (!m_previewShape.IsNull()) {
+            myContext->Remove(m_previewShape, Standard_True);
+        }
+        
+        TopoDS_Shape box = BRepPrimAPI_MakeBox(gp_Pnt(x, y, z), dx, dy, dz).Shape();
+        m_previewShape = new AIS_Shape(box);
+        m_previewShape->SetColor(Quantity_NOC_CYAN1);
+        m_previewShape->SetTransparency(0.5);
+        myContext->Display(m_previewShape, Standard_True);
+        myContext->UpdateCurrentViewer();
+        myView->Redraw();
+    }
+}
+
+void OccView::handleSphereCreation(const gp_Pnt& clickedPoint)
+{
+    switch (m_primitivePhase) {
+    case PrimitivePhase_Start:
+        m_primitivePoint1 = clickedPoint;
+        m_primitivePhase = PrimitivePhase_Base;
+        break;
+    case PrimitivePhase_Base: {
+        double radius = m_primitivePoint1.Distance(clickedPoint);
+        if (radius < 0.001) radius = 0.001;
+        
+        TopoDS_Shape sphere = BRepPrimAPI_MakeSphere(m_primitivePoint1, radius).Shape();
+        createPrimitiveShape(sphere, ShapeType::Sphere);
+        stopPrimitiveMode();
+        break;
+    }
+    }
+}
+
+void OccView::updateSpherePreview(const gp_Pnt& mousePoint)
+{
+    if (m_primitivePhase == PrimitivePhase_Base) {
+        double radius = m_primitivePoint1.Distance(mousePoint);
+        if (radius < 0.001) radius = 0.001;
+
+        if (!m_previewShape.IsNull()) {
+            myContext->Remove(m_previewShape, Standard_True);
+        }
+        
+        TopoDS_Shape sphere = BRepPrimAPI_MakeSphere(m_primitivePoint1, radius).Shape();
+        m_previewShape = new AIS_Shape(sphere);
+        m_previewShape->SetColor(Quantity_NOC_CYAN1);
+        m_previewShape->SetTransparency(0.5);
+        myContext->Display(m_previewShape, Standard_True);
+        myContext->UpdateCurrentViewer();
+        myView->Redraw();
+    }
+}
+
+void OccView::handleCylinderCreation(const gp_Pnt& clickedPoint)
+{
+    switch (m_primitivePhase) {
+    case PrimitivePhase_Start:
+        m_primitivePoint1 = clickedPoint;
+        m_primitivePhase = PrimitivePhase_Base;
+        break;
+    case PrimitivePhase_Base: {
+        m_primitiveRadius1 = m_primitivePoint1.Distance(clickedPoint);
+        if (m_primitiveRadius1 < 0.001) m_primitiveRadius1 = 0.001;
+
+        QInputDialog dialog(this);
+        dialog.setWindowTitle("Enter Cylinder Height");
+        dialog.setLabelText(QString("Radius: %1\nEnter Height:").arg(m_primitiveRadius1, 0, 'f', 3));
+        dialog.setDoubleRange(-1000.0, 1000.0);
+        dialog.setDoubleValue(m_primitiveRadius1 * 2);
+        dialog.setDoubleDecimals(3);
+        dialog.setStyleSheet("QInputDialog { font-size: 14px; } QLabel { font-size: 14px; font-weight: bold; } QDoubleSpinBox { font-size: 14px; }");
+        
+        if (dialog.exec() == QDialog::Accepted) {
+            double height = dialog.doubleValue();
+            double absHeight = fabs(height);
+            if (absHeight < 0.001) absHeight = 0.001;
+            
+            TopoDS_Shape cylinder = BRepPrimAPI_MakeCylinder(m_primitiveRadius1, absHeight).Shape();
+            double zOffset = (height < 0) ? height : 0.0;
+            gp_Trsf trsf;
+            trsf.SetTranslation(gp_Vec(m_primitivePoint1.X(), m_primitivePoint1.Y(), zOffset));
+            cylinder = BRepBuilderAPI_Transform(cylinder, trsf, Standard_True).Shape();
+            createPrimitiveShape(cylinder, ShapeType::Cylinder);
+        }
+        
+        stopPrimitiveMode();
+        break;
+    }
+    case PrimitivePhase_Height:
+        break;
+    }
+}
+
+void OccView::updateCylinderPreview(const gp_Pnt& mousePoint)
+{
+    if (m_primitivePhase == PrimitivePhase_Base) {
+        double radius = m_primitivePoint1.Distance(mousePoint);
+        if (radius < 0.001) radius = 0.001;
+
+        if (!m_previewShape.IsNull()) {
+            myContext->Remove(m_previewShape, Standard_True);
+        }
+        
+        TopoDS_Shape cylinder = BRepPrimAPI_MakeCylinder(radius, 0.001).Shape();
+        gp_Trsf trsf;
+        trsf.SetTranslation(gp_Vec(m_primitivePoint1.X(), m_primitivePoint1.Y(), 0));
+        cylinder = BRepBuilderAPI_Transform(cylinder, trsf, Standard_True).Shape();
+        
+        m_previewShape = new AIS_Shape(cylinder);
+        m_previewShape->SetColor(Quantity_NOC_CYAN1);
+        m_previewShape->SetTransparency(0.5);
+        myContext->Display(m_previewShape, Standard_True);
+        myContext->UpdateCurrentViewer();
+        myView->Redraw();
+    } else if (m_primitivePhase == PrimitivePhase_Height) {
+        if (m_primitiveRadius1 < 0.001) return;
+        double height = fabs(mousePoint.Z());
+        if (height < 0.001) height = 0.001;
+
+        if (!m_previewShape.IsNull()) {
+            myContext->Remove(m_previewShape, Standard_True);
+        }
+        
+        TopoDS_Shape cylinder = BRepPrimAPI_MakeCylinder(m_primitiveRadius1, height).Shape();
+        gp_Trsf trsf;
+        trsf.SetTranslation(gp_Vec(m_primitivePoint1.X(), m_primitivePoint1.Y(), 0));
+        cylinder = BRepBuilderAPI_Transform(cylinder, trsf, Standard_True).Shape();
+        
+        m_previewShape = new AIS_Shape(cylinder);
+        m_previewShape->SetColor(Quantity_NOC_CYAN1);
+        m_previewShape->SetTransparency(0.5);
+        myContext->Display(m_previewShape, Standard_True);
+        myContext->UpdateCurrentViewer();
+        myView->Redraw();
+    }
+}
+
+void OccView::handleConeCreation(const gp_Pnt& clickedPoint)
+{
+    switch (m_primitivePhase) {
+    case PrimitivePhase_Start:
+        m_primitivePoint1 = clickedPoint;
+        m_primitivePhase = PrimitivePhase_Base;
+        break;
+    case PrimitivePhase_Base: {
+        m_primitiveRadius1 = m_primitivePoint1.Distance(clickedPoint);
+        if (m_primitiveRadius1 < 0.001) m_primitiveRadius1 = 0.001;
+
+        QInputDialog dialog(this);
+        dialog.setWindowTitle("Enter Cone Height");
+        dialog.setLabelText(QString("Base Radius: %1\nEnter Height:").arg(m_primitiveRadius1, 0, 'f', 3));
+        dialog.setDoubleRange(-1000.0, 1000.0);
+        dialog.setDoubleValue(m_primitiveRadius1 * 2);
+        dialog.setDoubleDecimals(3);
+        dialog.setStyleSheet("QInputDialog { font-size: 14px; } QLabel { font-size: 14px; font-weight: bold; } QDoubleSpinBox { font-size: 14px; }");
+        
+        if (dialog.exec() == QDialog::Accepted) {
+            double height = dialog.doubleValue();
+            double absHeight = fabs(height);
+            if (absHeight < 0.001) absHeight = 0.001;
+            
+            TopoDS_Shape cone = BRepPrimAPI_MakeCone(m_primitiveRadius1, 0.001, absHeight).Shape();
+            double zOffset = (height < 0) ? height : 0.0;
+            gp_Trsf trsf;
+            trsf.SetTranslation(gp_Vec(m_primitivePoint1.X(), m_primitivePoint1.Y(), zOffset));
+            cone = BRepBuilderAPI_Transform(cone, trsf, Standard_True).Shape();
+            createPrimitiveShape(cone, ShapeType::Cone);
+        }
+        
+        stopPrimitiveMode();
+        break;
+    }
+    }
+}
+
+void OccView::updateConePreview(const gp_Pnt& mousePoint)
+{
+    if (m_primitivePhase == PrimitivePhase_Base) {
+        double radius = m_primitivePoint1.Distance(mousePoint);
+        if (radius < 0.001) radius = 0.001;
+
+        if (!m_previewShape.IsNull()) {
+            myContext->Remove(m_previewShape, Standard_True);
+        }
+        
+        TopoDS_Shape cone = BRepPrimAPI_MakeCone(radius, 0.001, 0.001).Shape();
+        gp_Trsf trsf;
+        trsf.SetTranslation(gp_Vec(m_primitivePoint1.X(), m_primitivePoint1.Y(), 0));
+        cone = BRepBuilderAPI_Transform(cone, trsf, Standard_True).Shape();
+        
+        m_previewShape = new AIS_Shape(cone);
+        m_previewShape->SetColor(Quantity_NOC_CYAN1);
+        m_previewShape->SetTransparency(0.5);
+        myContext->Display(m_previewShape, Standard_True);
+        myContext->UpdateCurrentViewer();
+        myView->Redraw();
+    } else if (m_primitivePhase == PrimitivePhase_Height) {
+        if (m_primitiveRadius1 < 0.001) return;
+        double height = fabs(mousePoint.Z());
+        if (height < 0.001) height = 0.001;
+
+        if (!m_previewShape.IsNull()) {
+            myContext->Remove(m_previewShape, Standard_True);
+        }
+        
+        TopoDS_Shape cone = BRepPrimAPI_MakeCone(m_primitiveRadius1, 0.001, height).Shape();
+        gp_Trsf trsf;
+        trsf.SetTranslation(gp_Vec(m_primitivePoint1.X(), m_primitivePoint1.Y(), 0));
+        cone = BRepBuilderAPI_Transform(cone, trsf, Standard_True).Shape();
+        
+        m_previewShape = new AIS_Shape(cone);
+        m_previewShape->SetColor(Quantity_NOC_CYAN1);
+        m_previewShape->SetTransparency(0.5);
+        myContext->Display(m_previewShape, Standard_True);
+        myContext->UpdateCurrentViewer();
+        myView->Redraw();
+    }
+}
+
+void OccView::createPrimitiveShape(const TopoDS_Shape& shape, ShapeType type)
+{
+    if (!m_previewShape.IsNull()) {
+        myContext->Remove(m_previewShape, Standard_True);
+        m_previewShape.Nullify();
+    }
+
+    Handle(AIS_Shape) aisShape = new AIS_Shape(shape);
+    aisShape->SetColor(Quantity_NOC_YELLOW);
+    aisShape->SetDisplayMode(AIS_Shaded);
+    myContext->Display(aisShape, Standard_True);
+
+    if (m_commandManager) {
+        m_commandManager->executeCommand(new DisplayShapeCommand(myContext, aisShape, "Create Primitive"));
+    }
+
+    myContext->ClearSelected(Standard_False);
+    myContext->UpdateCurrentViewer();
+    myView->Redraw();
+
+    emit shapeCreated(aisShape, type);
 }

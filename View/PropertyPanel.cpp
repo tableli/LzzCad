@@ -95,6 +95,33 @@ PropertyPanel::PropertyPanel(QWidget* parent)
     m_layerEdit->setStyleSheet(lineEditStyle);
     generalLayout->addRow(layerLabel, m_layerEdit);
 
+    QLabel* colorLabel = new QLabel("Color:");
+    colorLabel->setStyleSheet(labelStyle);
+    m_colorButton = new QPushButton();
+    m_colorButton->setFixedSize(60, 28);
+    m_colorButton->setStyleSheet(
+        "QPushButton { "
+        "  border: 1px solid #c0c0c0; "
+        "  border-radius: 4px; "
+        "  padding: 0; "
+        "  background-color: transparent; "
+        "} "
+        "QPushButton:hover { "
+        "  border-color: #999999; "
+        "} "
+        "QPushButton:focus { "
+        "  border-color: #4a90d9; "
+        "  outline: none; "
+        "}");
+    
+    QPixmap pixmap(56, 24);
+    pixmap.fill(QColor(255, 204, 0));
+    m_colorButton->setIcon(QIcon(pixmap));
+    m_colorButton->setIconSize(QSize(56, 24));
+    
+    connect(m_colorButton, &QPushButton::clicked, this, &PropertyPanel::onColorClicked);
+    generalLayout->addRow(colorLabel, m_colorButton);
+
     m_shapeInspectorPanel = new CollapsiblePanel("Shape Inspector");
     m_mainLayout->addWidget(m_shapeInspectorPanel);
 
@@ -272,7 +299,16 @@ void PropertyPanel::updateSelection(const Handle(AIS_Shape)& shape, const QStrin
     if (shape.IsNull())
         return;
 
+    m_currentShape = shape;
     m_nameEdit->setText(name);
+
+    Quantity_Color currentColor;
+    shape->Color(currentColor);
+    QColor qColor(currentColor.Red() * 255, currentColor.Green() * 255, currentColor.Blue() * 255);
+    QPixmap pixmap(56, 24);
+    pixmap.fill(qColor);
+    m_colorButton->setIcon(QIcon(pixmap));
+    m_colorButton->setIconSize(QSize(56, 24));
 
     populateShapeInspector(shape->Shape());
 
@@ -552,4 +588,26 @@ void PropertyPanel::onApplyTransform()
 {
     emit applyTransform(m_posX->value(), m_posY->value(), m_posZ->value(),
                         m_rotX->value(), m_rotY->value(), m_rotZ->value());
+}
+
+void PropertyPanel::onColorClicked()
+{
+    if (m_currentShape.IsNull())
+        return;
+
+    Quantity_Color currentColor;
+    m_currentShape->Color(currentColor);
+
+    QColor qColor(currentColor.Red() * 255, currentColor.Green() * 255, currentColor.Blue() * 255);
+    QColor selectedColor = QColorDialog::getColor(qColor, this, "Select Color");
+    
+    if (selectedColor.isValid()) {
+        QPixmap pixmap(56, 24);
+        pixmap.fill(selectedColor);
+        m_colorButton->setIcon(QIcon(pixmap));
+        m_colorButton->setIconSize(QSize(56, 24));
+        
+        Quantity_Color newColor(selectedColor.redF(), selectedColor.greenF(), selectedColor.blueF(), Quantity_TOC_RGB);
+        emit colorChanged(m_currentShape, newColor);
+    }
 }

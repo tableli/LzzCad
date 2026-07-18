@@ -54,3 +54,7 @@ ipch/
 image/*.png
 image/*.jpg
 image/*.svg
+
+# Development plan (local only)
+DEVELOPMENT_PLAN.md
+GIT_UPLOAD_GUIDE.md

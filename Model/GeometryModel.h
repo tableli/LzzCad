@@ -13,6 +13,14 @@ enum class ShapeType {
     Line,
     Circle,
     Arc,
+    Ellipse,
+    Box,
+    Sphere,
+    Cylinder,
+    Cone,
+    Extrude,
+    Revolve,
+    Sweep,
     Model
 };
 
@@ -115,6 +123,13 @@ private:
         static int lineCount = 0;
         static int circleCount = 0;
         static int arcCount = 0;
+        static int boxCount = 0;
+        static int sphereCount = 0;
+        static int cylinderCount = 0;
+        static int coneCount = 0;
+        static int extrudeCount = 0;
+        static int revolveCount = 0;
+        static int sweepCount = 0;
         static int modelCount = 0;
         
         switch (type) {
@@ -122,6 +137,13 @@ private:
             case ShapeType::Line: return QString("Line_%1").arg(++lineCount);
             case ShapeType::Circle: return QString("Circle_%1").arg(++circleCount);
             case ShapeType::Arc: return QString("Arc_%1").arg(++arcCount);
+            case ShapeType::Box: return QString("Box_%1").arg(++boxCount);
+            case ShapeType::Sphere: return QString("Sphere_%1").arg(++sphereCount);
+            case ShapeType::Cylinder: return QString("Cylinder_%1").arg(++cylinderCount);
+            case ShapeType::Cone: return QString("Cone_%1").arg(++coneCount);
+            case ShapeType::Extrude: return QString("Extrude_%1").arg(++extrudeCount);
+            case ShapeType::Revolve: return QString("Revolve_%1").arg(++revolveCount);
+            case ShapeType::Sweep: return QString("Sweep_%1").arg(++sweepCount);
             case ShapeType::Model: return QString("Model_%1").arg(++modelCount);
             default: return QString("Shape_%1").arg(m_shapes.size());
         }

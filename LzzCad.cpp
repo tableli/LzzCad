@@ -26,6 +26,7 @@
 #include <Geom_Plane.hxx>
 #include <GeomAPI_IntCS.hxx>
 #include <Graphic3d_Camera.hxx>
+#include <Quantity_Color.hxx>
 
 LzzCad::LzzCad(QWidget* parent)
     : SARibbonMainWindow(parent)
@@ -143,7 +144,28 @@ void LzzCad::createCentralWidget()
             case ShapeType::Line: m_occViewModel->addLine(shape); break;
             case ShapeType::Circle: m_occViewModel->addCircle(shape); break;
             case ShapeType::Arc: m_occViewModel->addArc(shape); break;
+            case ShapeType::Extrude: m_occViewModel->addShapeWithType(shape, type); break;
+            case ShapeType::Revolve: m_occViewModel->addShapeWithType(shape, type); break;
+            case ShapeType::Sweep: m_occViewModel->addShapeWithType(shape, type); break;
             default: m_occViewModel->addShape(shape); break;
+            }
+        }
+    });
+
+    connect(m_occView, &OccView::selectionChanged, [this]() {
+        QList<Handle(AIS_InteractiveObject)> selectedObjects = m_occView->getSelectedObjects();
+        if (!selectedObjects.isEmpty() && m_propertyPanel && m_geometryModel) {
+            Handle(AIS_Shape) selectedShape = Handle(AIS_Shape)::DownCast(selectedObjects.first());
+            if (!selectedShape.IsNull()) {
+                const auto& shapes = m_geometryModel->getShapes();
+                const auto& names = m_geometryModel->getShapeNames();
+                const auto& types = m_geometryModel->getShapeTypes();
+                for (size_t i = 0; i < shapes.size(); ++i) {
+                    if (shapes[i] == selectedShape) {
+                        m_propertyPanel->updateSelection(shapes[i], names[i], types[i]);
+                        break;
+                    }
+                }
             }
         }
     });
@@ -260,6 +282,11 @@ void LzzCad::createPropertyDock()
                 }
             }
         }
+    });
+
+    connect(m_propertyPanel, &PropertyPanel::colorChanged, this, [this](const Handle(AIS_Shape)& shape, const Quantity_Color& color) {
+        shape->SetColor(color);
+        m_occView->updateViewer();
     });
 }
 
@@ -423,6 +450,7 @@ void LzzCad::createFileCategory(SARibbonBar* ribbon)
     
     QAction* exitAction = new QAction(loadIcon("exit"), "Exit", this);
     windowPanel->addLargeAction(exitAction);
+    connect(exitAction, &QAction::triggered, this, &LzzCad::close);
 }
 
 // Sketch category: 2D sketch drawing tools
@@ -477,27 +505,34 @@ void LzzCad::createModelCategory(SARibbonBar* ribbon)
     
     QAction* boxAction = new QAction(loadIcon("box"), "Box", this);
     primitivesPanel->addLargeAction(boxAction);
+    connect(boxAction, &QAction::triggered, this, &LzzCad::onCreateBox);
     
     QAction* cylinderAction = new QAction(loadIcon("cylinder"), "Cylinder", this);
     primitivesPanel->addLargeAction(cylinderAction);
+    connect(cylinderAction, &QAction::triggered, this, &LzzCad::onCreateCylinder);
     
     QAction* sphereAction = new QAction(loadIcon("sphere"), "Sphere", this);
     primitivesPanel->addLargeAction(sphereAction);
+    connect(sphereAction, &QAction::triggered, this, &LzzCad::onCreateSphere);
     
     QAction* coneAction = new QAction(loadIcon("cone"), "Cone", this);
     primitivesPanel->addLargeAction(coneAction);
+    connect(coneAction, &QAction::triggered, this, &LzzCad::onCreateCone);
 
     // Features panel (extrude, revolve, etc.)
     SARibbonPanel* featuresPanel = modelCategory->addPanel("Features");
     
     QAction* extrudeAction = new QAction(loadIcon("extrude"), "Extrude", this);
     featuresPanel->addLargeAction(extrudeAction);
+    connect(extrudeAction, &QAction::triggered, this, &LzzCad::onCreateExtrude);
     
     QAction* revolveAction = new QAction(loadIcon("revolve"), "Revolve", this);
     featuresPanel->addLargeAction(revolveAction);
+    connect(revolveAction, &QAction::triggered, this, &LzzCad::onCreateRevolve);
     
     QAction* sweepAction = new QAction(loadIcon("sweep"), "Sweep", this);
     featuresPanel->addLargeAction(sweepAction);
+    connect(sweepAction, &QAction::triggered, this, &LzzCad::onCreateSweep);
     
     QAction* loftAction = new QAction(loadIcon("loft"), "Loft", this);
     featuresPanel->addLargeAction(loftAction);
@@ -730,12 +765,102 @@ void LzzCad::createHelpCategory(SARibbonBar* ribbon)
     SARibbonPanel* helpPanel = helpCategory->addPanel("Help");
     
     QAction* guideAction = new QAction(loadIcon("guide"), "Guide", this);
+    connect(guideAction, &QAction::triggered, this, [this]() {
+        addLogMessage("[GUIDE] === LzzCad Quick Guide ===");
+        addLogMessage("[GUIDE] Basic Operations:");
+        addLogMessage("[GUIDE]   - Left click: Select objects");
+        addLogMessage("[GUIDE]   - Middle click/drag: Rotate view");
+        addLogMessage("[GUIDE]   - Right click: Cancel/Context menu");
+        addLogMessage("[GUIDE]   - Scroll wheel: Zoom in/out");
+        addLogMessage("[GUIDE]");
+        addLogMessage("[GUIDE] Sketch Mode (Draw Tab):");
+        addLogMessage("[GUIDE]   - Point: Click to place points");
+        addLogMessage("[GUIDE]   - Line: Click start point, click end point");
+        addLogMessage("[GUIDE]   - Circle: Click center, drag to set radius");
+        addLogMessage("[GUIDE]   - Arc: Click start, click mid, click end");
+        addLogMessage("[GUIDE]   - ESC: Exit sketch mode");
+        addLogMessage("[GUIDE]");
+        addLogMessage("[GUIDE] Primitive Creation (Model Tab):");
+        addLogMessage("[GUIDE]   - Box: Click 2 corners for base, enter height");
+        addLogMessage("[GUIDE]   - Sphere: Click center, drag to set radius");
+        addLogMessage("[GUIDE]   - Cylinder: Click center, drag radius, enter height");
+        addLogMessage("[GUIDE]   - Cone: Click center, drag radius, enter height");
+        addLogMessage("[GUIDE]");
+        addLogMessage("[GUIDE] Feature Operations (Model Tab):");
+        addLogMessage("[GUIDE]   - Extrude: Select sketch, set height");
+        addLogMessage("[GUIDE]   - Revolve: Select sketch, choose axis and angle");
+        addLogMessage("[GUIDE]   - Sweep: Select profile then select path");
+        addLogMessage("[GUIDE]");
+        addLogMessage("[GUIDE] Property Panel:");
+        addLogMessage("[GUIDE]   - Modify object properties (name, color, transform)");
+        addLogMessage("[GUIDE]   - Change color via Color button");
+        addLogMessage("[GUIDE]");
+        addLogMessage("[GUIDE] File Operations:");
+        addLogMessage("[GUIDE]   - Open: Load STEP/BREP/IGES files");
+        addLogMessage("[GUIDE]   - Save: Save as STEP/BREP/IGES");
+        addLogMessage("[GUIDE]   - Exit: Close the application");
+        addLogMessage("[GUIDE]");
+        addLogMessage("[GUIDE] Full documentation coming soon!");
+    });
     helpPanel->addLargeAction(guideAction);
     
     QAction* bugReportAction = new QAction(loadIcon("bug_report"), "Bug Report", this);
+    connect(bugReportAction, &QAction::triggered, this, [this]() {
+        QMessageBox msgBox(this);
+        msgBox.setWindowTitle("Bug Report");
+        msgBox.setIcon(QMessageBox::Information);
+        msgBox.setTextFormat(Qt::RichText);
+        msgBox.setText(
+            "<h3>How to Report a Bug</h3>"
+            "<p>Thank you for helping improve LzzCad!</p>"
+            "<p>Please report bugs on GitHub:</p>"
+            "<p><a href=\"https://github.com/tableli/LzzCad/issues\">https://github.com/tableli/LzzCad/issues</a></p>"
+            "<p><b>When reporting, please include:</b></p>"
+            "<ul>"
+            "<li>Steps to reproduce the bug</li>"
+            "<li>Expected behavior</li>"
+            "<li>Actual behavior</li>"
+            "<li>Screenshots (if applicable)</li>"
+            "<li>Your OS and Qt version</li>"
+            "</ul>"
+        );
+        msgBox.exec();
+        addLogMessage("[INFO] Bug report info displayed. Please submit issues on GitHub.");
+    });
     helpPanel->addLargeAction(bugReportAction);
     
     QAction* aboutAction = new QAction(loadIcon("about"), "About", this);
+    connect(aboutAction, &QAction::triggered, this, [this]() {
+        QMessageBox msgBox(this);
+        msgBox.setWindowTitle("About LzzCad");
+        msgBox.setIcon(QMessageBox::Information);
+        msgBox.setTextFormat(Qt::RichText);
+        msgBox.setText(
+            "<h2>LzzCad</h2>"
+            "<p>Version: 1.0.0</p>"
+            "<p>A lightweight CAD software for 3D modeling and design.</p>"
+            "<p></p>"
+            "<p><b>Features:</b></p>"
+            "<ul>"
+            "<li>2D Sketching (Point, Line, Circle, Arc)</li>"
+            "<li>3D Primitive Modeling (Box, Sphere, Cylinder, Cone)</li>"
+            "<li>Feature Operations (Extrude, Revolve, Sweep)</li>"
+            "<li>STEP/BREP/IGES File Support</li>"
+            "<li>AI-powered Modeling Assistance</li>"
+            "<li>Property Panel with Color Editing</li>"
+            "</ul>"
+            "<p></p>"
+            "<p><b>Contact:</b></p>"
+            "<p>Email: <a href=\"mailto:2521403134@qq.com\">2521403134@qq.com</a></p>"
+            "<p>GitHub: <a href=\"https://github.com/tableli/LzzCad\">https://github.com/tableli/LzzCad</a></p>"
+            "<p></p>"
+            "<p><b>Copyright:</b></p>"
+            "<p>&copy; 2026 tableli. All rights reserved.</p>"
+            "<p>Built with Qt 5.14 and OpenCASCADE.</p>"
+        );
+        msgBox.exec();
+        addLogMessage("[INFO] About dialog displayed");
+    });
     helpPanel->addLargeAction(aboutAction);
 
     SARibbonPanel* settingsPanel = helpCategory->addPanel("Settings");
@@ -1006,6 +1131,74 @@ void LzzCad::onSketchArc()
     if (m_occView) {
         m_occView->startSketchArcMode();
         addLogMessage("[Sketch] Arc mode: Click to set center, click for start point, click for end point");
+    }
+}
+
+void LzzCad::onCreateBox()
+{
+    if (m_occViewModel) {
+        m_occViewModel->viewTop();
+    }
+    if (m_occView) {
+        m_occView->startPrimitiveBoxMode();
+        addLogMessage("[Primitive] Box mode: Click to set first corner, click for second corner, click for height");
+    }
+}
+
+void LzzCad::onCreateSphere()
+{
+    if (m_occViewModel) {
+        m_occViewModel->viewTop();
+    }
+    if (m_occView) {
+        m_occView->startPrimitiveSphereMode();
+        addLogMessage("[Primitive] Sphere mode: Click to set center, click for radius");
+    }
+}
+
+void LzzCad::onCreateCylinder()
+{
+    if (m_occViewModel) {
+        m_occViewModel->viewTop();
+    }
+    if (m_occView) {
+        m_occView->startPrimitiveCylinderMode();
+        addLogMessage("[Primitive] Cylinder mode: Click to set center, click for radius, click for height");
+    }
+}
+
+void LzzCad::onCreateCone()
+{
+    if (m_occViewModel) {
+        m_occViewModel->viewTop();
+    }
+    if (m_occView) {
+        m_occView->startPrimitiveConeMode();
+        addLogMessage("[Primitive] Cone mode: Click to set center, click for base radius, click for height");
+    }
+}
+
+void LzzCad::onCreateExtrude()
+{
+    if (m_occView) {
+        m_occView->startExtrudeMode();
+        addLogMessage("[Feature] Extrude mode: Click to select a sketch, then enter extrude height");
+    }
+}
+
+void LzzCad::onCreateRevolve()
+{
+    if (m_occView) {
+        m_occView->startRevolveMode();
+        addLogMessage("[Feature] Revolve mode: Click to select a sketch, then set revolve parameters");
+    }
+}
+
+void LzzCad::onCreateSweep()
+{
+    if (m_occView) {
+        m_occView->startSweepMode();
+        addLogMessage("[Feature] Sweep mode: Click to select profile, then click to select path");
     }
 }
 

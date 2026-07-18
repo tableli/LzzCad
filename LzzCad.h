@@ -85,6 +85,17 @@ private slots:
     void onSketchCircle();
     void onSketchArc();
     
+    // Primitive creation slots
+    void onCreateBox();
+    void onCreateSphere();
+    void onCreateCylinder();
+    void onCreateCone();
+    
+    // Feature creation slots
+    void onCreateExtrude();
+    void onCreateRevolve();
+    void onCreateSweep();
+    
     void onDeleteSelected();
     
     void onModelTreeItemClicked(QTreeWidgetItem* item, int column);

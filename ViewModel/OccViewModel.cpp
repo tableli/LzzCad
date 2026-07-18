@@ -128,6 +128,13 @@ void OccViewModel::addShape(const Handle(AIS_Shape)& shape) {
     emit shapeAddedToModel(name);
 }
 
+void OccViewModel::addShapeWithType(const Handle(AIS_Shape)& shape, ShapeType type) {
+    m_model->addShape(shape, type);
+    QString name = m_model->getShapeNames().back();
+    updateStatus("Added shape");
+    emit shapeAddedToModel(name);
+}
+
 void OccViewModel::addModel(const Handle(AIS_Shape)& shape, const QString& name) {
     m_model->addShape(shape, ShapeType::Model, name);
     QString shapeName = m_model->getShapeNames().back();

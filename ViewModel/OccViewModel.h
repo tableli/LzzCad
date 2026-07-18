@@ -45,6 +45,7 @@ public:
     Q_INVOKABLE void addCircle(const Handle(AIS_Shape)& shape);
     Q_INVOKABLE void addArc(const Handle(AIS_Shape)& shape);
     Q_INVOKABLE void addShape(const Handle(AIS_Shape)& shape);
+    Q_INVOKABLE void addShapeWithType(const Handle(AIS_Shape)& shape, ShapeType type);
     Q_INVOKABLE void addModel(const Handle(AIS_Shape)& shape, const QString& name = "");
     
     Q_INVOKABLE void openFile(const QString& fileName);

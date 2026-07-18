@@ -12,8 +12,10 @@
 #include <QScrollArea>
 #include <QFormLayout>
 #include <QRegExp>
+#include <QColorDialog>
 #include <AIS_Shape.hxx>
 #include <TopoDS_Shape.hxx>
+#include <Quantity_Color.hxx>
 #include "../Model/GeometryModel.h"
 
 class CollapsiblePanel : public QWidget
@@ -98,6 +100,7 @@ class PropertyPanel : public QWidget
 signals:
     void nameChanged(const QString& name);
     void applyTransform(double x, double y, double z, double rx, double ry, double rz);
+    void colorChanged(const Handle(AIS_Shape)& shape, const Quantity_Color& color);
 
 public:
     explicit PropertyPanel(QWidget* parent = nullptr);
@@ -119,6 +122,8 @@ private:
     
     QLineEdit* m_nameEdit;
     QLineEdit* m_layerEdit;
+    QPushButton* m_colorButton;
+    Handle(AIS_Shape) m_currentShape;
     
     QDoubleSpinBox* m_posX;
     QDoubleSpinBox* m_posY;
@@ -137,4 +142,5 @@ private slots:
     void onNameChanged(const QString& text);
     void onTransformChanged();
     void onApplyTransform();
+    void onColorClicked();
 };
