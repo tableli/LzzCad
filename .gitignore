@@ -58,3 +58,7 @@ image/*.svg
 # Development plan (local only)
 DEVELOPMENT_PLAN.md
 GIT_UPLOAD_GUIDE.md
+
+# Upload scripts (local only)
+upload.bat
+upload.sh
