@@ -480,7 +480,101 @@ Redo：
 
 ---
 
-## 六、AI 集成
+## 六、布尔运算
+
+### 6.1 概述
+
+LzzCad 支持三种布尔运算操作：**并集（Union）**、**差集（Cut）** 和 **交集（Intersect）**，基于 OpenCASCADE 的 BRepAlgoAPI 实现。
+
+### 6.2 交互流程
+
+`
+用户选中 ≥ 2 个模型 → 点击 Boolean 面板按钮
+    ↓
+检查选中数量 ≥ 2
+    ↓ 否 → QMessageBox::warning 提示至少选择 2 个形状
+    ↓ 是
+取前 2 个选中形状的 TopoDS_Shape
+    ↓
+BRepAlgoAPI_Fuse / Cut / Common 执行布尔运算
+    ↓
+检查 IsDone() 和 result Shape
+    ↓ 失败 → 日志记录 + 弹窗提示
+    ↓ 成功
+擦除原模型（Context、GeometryModel、模型树三者同步删除）
+    ↓
+创建新 AIS_Shape 并显示
+    ↓
+添加到 GeometryModel（ShapeType::Model）
+    ↓
+添加到模型树（自动命名 "Union_Result" / "Cut_Result" / "Intersect_Result"）
+    ↓
+fitAll 自适应视图
+`
+
+### 6.3 代码结构
+
+**LzzCad.h**：
+- 枚举 \BooleanOp { Bool_Union, Bool_Cut, Bool_Intersect }- 槽函数：\onBooleanUnion()\、\onBooleanCut()\、\onBooleanIntersect()- 辅助函数：\ool performBoolean(BooleanOp op, const QString& opName)
+**LzzCad.cpp**：
+- Ribbon 连接：\createModelCategory()\ 中 "Boolean" 面板的按钮 → 对应槽函数
+- \performBoolean()\ 实现：
+  1. 检查 m_occView / m_geometryModel / m_modelTree / m_commandManager 非空
+  2. 调用 \m_occView->getSelectedObjects()\ 获取选中列表
+  3. 不足 2 个 → 弹窗提示
+  4. DownCast 为 AIS_Shape，提取 TopoDS_Shape
+  5. Try-Catch 执行 BRepAlgoAPI_Fuse/Cut/Common
+  6. 若失败或结果为空 → 日志 + 弹窗
+  7. 按顺序删除原模型（Context erase → GeometryModel removeShape → 模型树 removeModelTreeItem）
+  8. 创建结果 AIS_Shape，Display + DisplayShapeCommand 记录
+  9. 添加到 GeometryModel（ShapeType::Model）
+  10. 添加到模型树
+
+### 6.4 添加的头文件
+\\cpp
+#include <BRepAlgoAPI_Fuse.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
+#include <BRepAlgoAPI_Common.hxx>
+#include <Standard_Failure.hxx>
+#include <Standard_ErrorHandler.hxx>
+\
+### 6.5 依赖库
+已在 vcxproj 中链接：\TKBO.lib\、\TKBool.lib
+---
+
+## 七、模型树
+
+### 7.1 功能
+模型树（左侧 DockWidget）以树状结构显示当前所有几何模型，支持：
+- **点击选中**：点击模型树项目 → OccView 中选中对应形状 → 属性面板更新
+- **显示/隐藏**：点击第二列图标切换可见性（眼睛图标）
+- **同步删除**：删除形状时会自动移除模型树对应项目
+
+### 7.2 数据结构
+\模型树 (QTreeWidget)
+└── "Assembly" (根节点)
+    ├── Point_1
+    ├── Line_1
+    ├── Circle_1
+    ├── Box_1
+    ├── Union_Result
+    └── ...
+\
+### 7.3 操作方法
+| 方法 | 说明 |
+|------|------|
+| \ddModelTreeItem(name)\ | 在根节点下添加子项 |
+| emoveModelTreeItem(name)\ | 按名称删除子项 |
+| \clearModelTree()\ | 清空所有子项 |
+| \onModelTreeItemClicked(item, column)\ | 处理点击：column 0 选中形状，column 1 切换可见性 |
+| \	oggleShapeVisibility(item, column)\ | 切换形状显示/隐藏，更新图标 |
+
+### 7.4 信号连接
+- \OccViewModel::shapeAddedToModel\ → \LzzCad::addModelTreeItem
+---
+
+## 八、AI 集成
+
 
 **API**: `https://api.deepseek.com/v1/chat/completions`
 **Model**: `deepseek-chat`, Temperature: 0.7, Max Tokens: 2048
@@ -574,12 +668,14 @@ Redo：
 | v1.2 | AI 对话，DeepSeek API |
 | v1.3 | 草图绘制（点/线/圆/弧） |
 | v1.4 | Undo/Redo 系统，API 优化 |
+| v1.5 | 多选功能 + 布尔运算 + 模型树同步更新 |
 
 ---
 
 ## 十一、已知问题
 
 1. `Command.h` 单文件需拆分
-2. popup() 为空，多个按钮未连接槽函数
-3. 模型树/属性面板为静态数据
+2. popup() 为空
+3. 属性面板为静态数据
 4. API Key 明文存储存在安全风险
+5. 布尔运算仅支持前 2 个选中形状（需改进为多形状布尔并集链）

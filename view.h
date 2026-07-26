@@ -18,6 +18,7 @@
 #include <BRepBuilderAPI_Transform.hxx>
 #include <set>
 #include<qdebug.h>
+#include <QVector>
 #include "Model/GeometryModel.h"
 
 class OccViewModel;
@@ -46,6 +47,10 @@ public:
         CurAction3d_Primitive_CreateCone,
         CurAction3d_Feature_Extrude,
         CurAction3d_Feature_Revolve,
+        CurAction3d_Sketch_DrawPolyline,
+        CurAction3d_Sketch_DrawSpline,
+        CurAction3d_Sketch_DrawEllipse,
+        CurAction3d_Sketch_DrawRectangle,
         CurAction3d_Feature_Sweep
     };
 
@@ -77,6 +82,10 @@ public:
     void startSketchLineMode();
     void startSketchCircleMode();
     void startSketchArcMode();
+    void startSketchPolylineMode();
+    void startSketchSplineMode();
+    void startSketchEllipseMode();
+    void startSketchRectangleMode();
     void stopSketchMode();
 
     // Primitive mode control
@@ -209,6 +218,8 @@ protected:
     std::set<Handle(AIS_InteractiveObject)> hiddenObjects;
     
     bool m_isInitialized;
+    bool m_pressDetected;
+    bool m_wasDragged;
     
     // Sketch drawing state
     Handle(AIS_Shape) m_previewShape;
@@ -217,6 +228,10 @@ protected:
     gp_Pnt m_sketchPoint2;
     gp_Pnt m_sketchPoint3;
     bool m_sketchReverseArc;
+    QVector<gp_Pnt> m_polylinePoints;
+    QVector<gp_Pnt> m_splinePoints;
+    bool m_rectangleSecondCorner;
+    bool m_ellipsePhase;  // false=set center, true=set radius
 
     // Primitive creation state
     enum PrimitivePhase {

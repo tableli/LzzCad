@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <QtWidgets/QMainWindow>
 #include <QDockWidget>
@@ -24,6 +24,8 @@
 #include "Model/GeometryModel.h"
 #include "ViewModel/OccViewModel.h"
 #include "Command/Command.h"
+
+enum class BooleanOp { Bool_Union, Bool_Cut, Bool_Intersect };
 
 class LzzCad : public SARibbonMainWindow
 {
@@ -84,6 +86,10 @@ private slots:
     void onSketchLine();
     void onSketchCircle();
     void onSketchArc();
+    void onSketchPolyline();
+    void onSketchSpline();
+    void onSketchEllipse();
+    void onSketchRectangle();
     
     // Primitive creation slots
     void onCreateBox();
@@ -96,6 +102,10 @@ private slots:
     void onCreateRevolve();
     void onCreateSweep();
     
+    void onBooleanUnion();
+    void onBooleanCut();
+    void onBooleanIntersect();
+
     void onDeleteSelected();
     
     void onModelTreeItemClicked(QTreeWidgetItem* item, int column);
@@ -139,4 +149,7 @@ private:
     QIcon m_hideIcon;
     
     void toggleShapeVisibility(QTreeWidgetItem* item, int column);
+
+    // Boolean operations
+    bool performBoolean(BooleanOp op, const QString& opName);
 };

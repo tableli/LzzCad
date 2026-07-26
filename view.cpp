@@ -57,6 +57,7 @@
 #include <GC_MakeArcOfCircle.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakePolygon.hxx>
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepOffsetAPI_MakePipe.hxx>
@@ -64,6 +65,9 @@
 #include <Geom_Line.hxx>
 #include <Geom_Plane.hxx>
 #include <GeomAPI_IntCS.hxx>
+#include <Geom_BSplineCurve.hxx>
+#include <GeomAPI_PointsToBSpline.hxx>
+#include <TColgp_Array1OfPnt.hxx>
 #include "E:\MyGithub\LzzCad\Command\Command.h"
 
 #ifdef _WIN32
@@ -105,7 +109,11 @@ OccView::OccView(QWidget* parent)
     m_viewModel(nullptr),
     m_sketchClickCount(0),
     m_sketchReverseArc(false),
-    m_isInitialized(false)
+    m_rectangleSecondCorner(false),
+    m_ellipsePhase(false),
+    m_isInitialized(false),
+    m_pressDetected(false),
+    m_wasDragged(false)
 {
     setBackgroundRole(QPalette::NoRole);
     setFocusPolicy(Qt::StrongFocus);
@@ -265,8 +273,38 @@ void OccView::startSketchArcMode()
     setCursor(Qt::CrossCursor);
 }
 
+void OccView::startSketchPolylineMode()
+{
+    resetSketchState();
+    myCurrentMode = CurAction3d_Sketch_DrawPolyline;
+    setCursor(Qt::CrossCursor);
+}
+
+void OccView::startSketchSplineMode()
+{
+    resetSketchState();
+    myCurrentMode = CurAction3d_Sketch_DrawSpline;
+    setCursor(Qt::CrossCursor);
+}
+
+void OccView::startSketchEllipseMode()
+{
+    resetSketchState();
+    myCurrentMode = CurAction3d_Sketch_DrawEllipse;
+    setCursor(Qt::CrossCursor);
+}
+
+void OccView::startSketchRectangleMode()
+{
+    resetSketchState();
+    myCurrentMode = CurAction3d_Sketch_DrawRectangle;
+    setCursor(Qt::CrossCursor);
+}
+
 void OccView::stopSketchMode()
 {
+    m_polylinePoints.clear();
+    m_splinePoints.clear();
     resetSketchState();
     myCurrentMode = CurAction3d_Nothing;
     setCursor(Qt::ArrowCursor);
@@ -358,6 +396,75 @@ void OccView::updateSketchPreview()
         }
         break;
 
+    case CurAction3d_Sketch_DrawPolyline:
+        if (m_polylinePoints.size() >= 2) {
+            BRepBuilderAPI_MakeWire wireMaker;
+            // Draw completed segments from accumulated points
+            for (int i = 0; i < m_polylinePoints.size() - 1; ++i) {
+                TopoDS_Edge e = BRepBuilderAPI_MakeEdge(m_polylinePoints[i], m_polylinePoints[i+1]);
+                wireMaker.Add(e);
+            }
+            // Add active segment from last point to mouse position (skip if too close)
+            gp_Pnt lastPt = m_polylinePoints.last();
+            if (lastPt.Distance(m_sketchPoint2) > 0.01) {
+                TopoDS_Edge e = BRepBuilderAPI_MakeEdge(lastPt, m_sketchPoint2);
+                wireMaker.Add(e);
+            }
+            previewShape = wireMaker.Shape();
+            hasPreview = true;
+        }
+        break;
+
+    case CurAction3d_Sketch_DrawSpline:
+        if (m_splinePoints.size() >= 2) {
+            QVector<gp_Pnt> allPts = m_splinePoints;
+            // Only add the active mouse position if it''s far enough from the last point
+            gp_Pnt lastPt = m_splinePoints.last();
+            if (lastPt.Distance(m_sketchPoint2) > 0.01) {
+                allPts.append(m_sketchPoint2);
+            }
+            TColgp_Array1OfPnt pts(1, allPts.size());
+            for (int i = 0; i < allPts.size(); ++i) {
+                pts.SetValue(i+1, allPts[i]);
+            }
+            Handle(Geom_BSplineCurve) spline = GeomAPI_PointsToBSpline(pts).Curve();
+            TopoDS_Edge edge = BRepBuilderAPI_MakeEdge(spline);
+            previewShape = edge;
+            hasPreview = true;
+        }
+        break;
+
+    case CurAction3d_Sketch_DrawEllipse:
+        if (m_ellipsePhase) {
+            double majRadius = m_sketchPoint1.Distance(m_sketchPoint2);
+            if (majRadius > 0.01) {
+                gp_Dir xDir(m_sketchPoint2.X() - m_sketchPoint1.X(),
+                            m_sketchPoint2.Y() - m_sketchPoint1.Y(), 0);
+                gp_Elips ellipse(gp_Ax2(m_sketchPoint1, gp_Dir(0,0,1), xDir),
+                                 majRadius, majRadius * 0.6);
+                TopoDS_Edge edge = BRepBuilderAPI_MakeEdge(ellipse);
+                previewShape = edge;
+                hasPreview = true;
+            }
+        }
+        break;
+
+    case CurAction3d_Sketch_DrawRectangle:
+        if (m_rectangleSecondCorner && m_sketchPoint1.Distance(m_sketchPoint2) > 0.01) {
+            double x1 = m_sketchPoint1.X(), y1 = m_sketchPoint1.Y();
+            double x2 = m_sketchPoint2.X(), y2 = m_sketchPoint2.Y();
+            gp_Pnt p1(x1, y1, 0), p2(x2, y1, 0), p3(x2, y2, 0), p4(x1, y2, 0);
+            BRepBuilderAPI_MakePolygon polygon;
+            polygon.Add(p1);
+            polygon.Add(p2);
+            polygon.Add(p3);
+            polygon.Add(p4);
+            polygon.Close();
+            previewShape = polygon.Shape();
+            hasPreview = true;
+        }
+        break;
+
     default:
         break;
     }
@@ -432,6 +539,64 @@ void OccView::finishSketchShape()
         }
         break;
 
+    case CurAction3d_Sketch_DrawPolyline:
+        if (m_polylinePoints.size() >= 2) {
+            BRepBuilderAPI_MakeWire wireMaker;
+            for (int i = 0; i < m_polylinePoints.size() - 1; ++i) {
+                TopoDS_Edge e = BRepBuilderAPI_MakeEdge(m_polylinePoints[i], m_polylinePoints[i+1]);
+                wireMaker.Add(e);
+            }
+            finalShape = wireMaker.Shape();
+            hasShape = true;
+            shapeType = ShapeType::Polyline;
+        }
+        break;
+
+    case CurAction3d_Sketch_DrawSpline:
+        if (m_splinePoints.size() >= 2) {
+            TColgp_Array1OfPnt pts(1, m_splinePoints.size());
+            for (int i = 0; i < m_splinePoints.size(); ++i) {
+                pts.SetValue(i+1, m_splinePoints[i]);
+            }
+            Handle(Geom_BSplineCurve) spline = GeomAPI_PointsToBSpline(pts).Curve();
+            finalShape = BRepBuilderAPI_MakeEdge(spline);
+            hasShape = true;
+            shapeType = ShapeType::Spline;
+        }
+        break;
+
+    case CurAction3d_Sketch_DrawEllipse:
+        if (m_sketchClickCount >= 2) {
+            double majRadius = m_sketchPoint1.Distance(m_sketchPoint2);
+            if (majRadius > 0.01) {
+                gp_Dir xDir(m_sketchPoint2.X() - m_sketchPoint1.X(),
+                            m_sketchPoint2.Y() - m_sketchPoint1.Y(), 0);
+                gp_Elips ellipse(gp_Ax2(m_sketchPoint1, gp_Dir(0,0,1), xDir),
+                                 majRadius, majRadius * 0.6);
+                finalShape = BRepBuilderAPI_MakeEdge(ellipse);
+                hasShape = true;
+                shapeType = ShapeType::Ellipse;
+            }
+        }
+        break;
+
+    case CurAction3d_Sketch_DrawRectangle:
+        if (m_sketchClickCount >= 2 && m_sketchPoint1.Distance(m_sketchPoint2) > 0.01) {
+            double x1 = m_sketchPoint1.X(), y1 = m_sketchPoint1.Y();
+            double x2 = m_sketchPoint2.X(), y2 = m_sketchPoint2.Y();
+            gp_Pnt p1(x1, y1, 0), p2(x2, y1, 0), p3(x2, y2, 0), p4(x1, y2, 0);
+            BRepBuilderAPI_MakePolygon polygon;
+            polygon.Add(p1);
+            polygon.Add(p2);
+            polygon.Add(p3);
+            polygon.Add(p4);
+            polygon.Close();
+            finalShape = polygon.Shape();
+            hasShape = true;
+            shapeType = ShapeType::Rectangle;
+        }
+        break;
+
     default:
         break;
     }
@@ -453,16 +618,14 @@ void OccView::finishSketchShape()
         Handle(AIS_Shape) aisShape = new AIS_Shape(finalShape);
         switch (shapeType) {
             case ShapeType::Point:
-                aisShape->SetColor(Quantity_NOC_RED);
-                break;
             case ShapeType::Line:
-                aisShape->SetColor(Quantity_NOC_BLUE);
-                break;
             case ShapeType::Circle:
-                aisShape->SetColor(Quantity_NOC_MAGENTA);
-                break;
             case ShapeType::Arc:
-                aisShape->SetColor(Quantity_NOC_ORANGE);
+            case ShapeType::Spline:
+            case ShapeType::Polyline:
+            case ShapeType::Rectangle:
+            case ShapeType::Ellipse:
+                aisShape->SetColor(Quantity_NOC_RED);
                 break;
             default:
                 aisShape->SetColor(Quantity_NOC_CYAN1);
@@ -505,6 +668,10 @@ void OccView::resetSketchState()
     m_sketchPoint2 = gp_Pnt(0, 0, 0);
     m_sketchPoint3 = gp_Pnt(0, 0, 0);
     m_sketchReverseArc = false;
+    m_rectangleSecondCorner = false;
+    m_ellipsePhase = false;
+    m_polylinePoints.clear();
+    m_splinePoints.clear();
 }
 
 QPaintEngine* OccView::paintEngine() const
@@ -542,11 +709,26 @@ void OccView::resizeEvent(QResizeEvent* event)
 
 void OccView::keyPressEvent(QKeyEvent* theEvent)
 {
+    if (theEvent->key() == Qt::Key_Return || theEvent->key() == Qt::Key_Enter) {
+        if (myCurrentMode == CurAction3d_Sketch_DrawPolyline) {
+            if (m_polylinePoints.size() >= 2) {
+                finishSketchShape();
+            }
+        } else if (myCurrentMode == CurAction3d_Sketch_DrawSpline) {
+            if (m_splinePoints.size() >= 2) {
+                finishSketchShape();
+            }
+        }
+        return;
+    }
     if (theEvent->key() == Qt::Key_Escape) {
         if (myCurrentMode >= CurAction3d_Sketch_DrawPoint &&
-            myCurrentMode <= CurAction3d_Sketch_DrawArc) {
+            myCurrentMode <= CurAction3d_Sketch_DrawRectangle) {
+            // Cancel any sketch mode and exit
+            m_polylinePoints.clear();
+            m_splinePoints.clear();
+            resetSketchState();
             myCurrentMode = CurAction3d_DynamicRotation;
-            m_sketchClickCount = 0;
             setCursor(Qt::ArrowCursor);
         } else if (myCurrentMode >= CurAction3d_Primitive_CreateBox &&
                    myCurrentMode <= CurAction3d_Primitive_CreateCone) {
@@ -570,7 +752,7 @@ void OccView::mousePressEvent(QMouseEvent* theEvent)
     }
 
     if (myCurrentMode >= CurAction3d_Sketch_DrawPoint &&
-        myCurrentMode <= CurAction3d_Sketch_DrawArc) {
+        myCurrentMode <= CurAction3d_Sketch_DrawRectangle) {
 
         gp_Pnt clickedPoint = convertScreenToWorld(theEvent->pos());
         bool isLeftButton = (theEvent->button() == Qt::LeftButton);
@@ -635,6 +817,82 @@ void OccView::mousePressEvent(QMouseEvent* theEvent)
                 m_sketchReverseArc = true;
                 m_sketchClickCount = 3;
                 finishSketchShape();
+            }
+            break;
+
+        case CurAction3d_Sketch_DrawPolyline:
+            if (isLeftButton) {
+                m_polylinePoints.append(clickedPoint);
+                m_sketchClickCount = m_polylinePoints.size();
+                // Show a vertex marker on first click for visual feedback
+                if (m_polylinePoints.size() == 1) {
+                    Handle(AIS_Shape) ptMarker = new AIS_Shape(BRepBuilderAPI_MakeVertex(clickedPoint).Shape());
+                    ptMarker->SetColor(Quantity_NOC_YELLOW);
+                    if (!m_previewShape.IsNull()) {
+                        myContext->Remove(m_previewShape, Standard_True);
+                        m_previewShape.Nullify();
+                    }
+                    m_previewShape = ptMarker;
+                    myContext->Display(m_previewShape, Standard_True);
+                    myContext->UpdateCurrentViewer();
+                    myView->Redraw();
+                }
+            } else if (isRightButton) {
+                if (m_polylinePoints.size() >= 2) {
+                    finishSketchShape();
+                }
+            }
+            break;
+
+        case CurAction3d_Sketch_DrawSpline:
+            if (isLeftButton) {
+                m_splinePoints.append(clickedPoint);
+                m_sketchClickCount = m_splinePoints.size();
+                // Show a vertex marker on first click for visual feedback
+                if (m_splinePoints.size() == 1) {
+                    Handle(AIS_Shape) ptMarker = new AIS_Shape(BRepBuilderAPI_MakeVertex(clickedPoint).Shape());
+                    ptMarker->SetColor(Quantity_NOC_YELLOW);
+                    if (!m_previewShape.IsNull()) {
+                        myContext->Remove(m_previewShape, Standard_True);
+                        m_previewShape.Nullify();
+                    }
+                    m_previewShape = ptMarker;
+                    myContext->Display(m_previewShape, Standard_True);
+                    myContext->UpdateCurrentViewer();
+                    myView->Redraw();
+                }
+            } else if (isRightButton) {
+                if (m_splinePoints.size() >= 2) {
+                    finishSketchShape();
+                }
+            }
+            break;
+
+        case CurAction3d_Sketch_DrawEllipse:
+            if (isLeftButton) {
+                if (!m_ellipsePhase) {
+                    m_sketchPoint1 = clickedPoint;
+                    m_ellipsePhase = true;
+                    m_sketchClickCount = 1;
+                } else {
+                    m_sketchPoint2 = clickedPoint;
+                    m_sketchClickCount = 2;
+                    finishSketchShape();
+                }
+            }
+            break;
+
+        case CurAction3d_Sketch_DrawRectangle:
+            if (isLeftButton) {
+                if (!m_rectangleSecondCorner) {
+                    m_sketchPoint1 = clickedPoint;
+                    m_rectangleSecondCorner = true;
+                    m_sketchClickCount = 1;
+                } else {
+                    m_sketchPoint2 = clickedPoint;
+                    m_sketchClickCount = 2;
+                    finishSketchShape();
+                }
             }
             break;
 
@@ -718,8 +976,11 @@ void OccView::mousePressEvent(QMouseEvent* theEvent)
 
         myContext->MoveTo(theEvent->pos().x(), theEvent->pos().y(), myView, true);
 
-        if (myContext->HasDetected()) {
-            myContext->SelectDetected();
+        m_pressDetected = myContext->HasDetected();
+        m_wasDragged = false;
+        if (m_pressDetected) {
+            myContext->ShiftSelect(Standard_True);
+            emit selectionChanged();
         }
     }
     else if (theEvent->button() == Qt::RightButton) {
@@ -732,7 +993,7 @@ void OccView::mouseReleaseEvent(QMouseEvent* theEvent)
     if (myView.IsNull()) return;
 
     if (myCurrentMode >= CurAction3d_Sketch_DrawPoint &&
-        myCurrentMode <= CurAction3d_Sketch_DrawArc) {
+        myCurrentMode <= CurAction3d_Sketch_DrawRectangle) {
         return;
     }
 
@@ -781,7 +1042,7 @@ void OccView::mouseMoveEvent(QMouseEvent* theEvent)
     }
 
     if (myCurrentMode >= CurAction3d_Sketch_DrawPoint &&
-        myCurrentMode <= CurAction3d_Sketch_DrawArc) {
+        myCurrentMode <= CurAction3d_Sketch_DrawRectangle) {
 
         gp_Pnt mousePoint = convertScreenToWorld(theEvent->pos());
 
@@ -803,6 +1064,34 @@ void OccView::mouseMoveEvent(QMouseEvent* theEvent)
         case CurAction3d_Sketch_DrawArc:
             if (m_sketchClickCount == 2) {
                 m_sketchPoint3 = mousePoint;
+                updateSketchPreview();
+            }
+            break;
+
+        case CurAction3d_Sketch_DrawPolyline:
+            if (m_polylinePoints.size() >= 2) {
+                m_sketchPoint2 = mousePoint;
+                updateSketchPreview();
+            }
+            break;
+
+        case CurAction3d_Sketch_DrawSpline:
+            if (m_splinePoints.size() >= 2) {
+                m_sketchPoint2 = mousePoint;
+                updateSketchPreview();
+            }
+            break;
+
+        case CurAction3d_Sketch_DrawEllipse:
+            if (m_ellipsePhase) {
+                m_sketchPoint2 = mousePoint;
+                updateSketchPreview();
+            }
+            break;
+
+        case CurAction3d_Sketch_DrawRectangle:
+            if (m_rectangleSecondCorner) {
+                m_sketchPoint2 = mousePoint;
                 updateSketchPreview();
             }
             break;
@@ -863,8 +1152,12 @@ void OccView::onLButtonUp(const int theFlags, const QPoint thePoint)
         myRectBand->hide();
     }
 
-    if (myXmin == myXmax && myYmin == myYmax) {
-        inputEvent(thePoint.x(), thePoint.y());
+    if (!m_wasDragged) {
+        // Click (no drag): clear selection if press detected nothing
+        if (!m_pressDetected) {
+            myContext->Select(Standard_False);
+            emit selectionChanged();
+        }
     }
 }
 
@@ -928,7 +1221,7 @@ void OccView::inputEvent(const int x, const int y)
     Q_UNUSED(x);
     Q_UNUSED(y);
 
-    myContext->Select(Standard_True);
+    myContext->ShiftSelect(Standard_True);
     emit selectionChanged();
 }
 
@@ -947,8 +1240,15 @@ void OccView::onMouseMove(const int theFlags, const QPoint thePoint)
     if (myView.IsNull()) return;
 
     if (theFlags & Qt::LeftButton) {
-        drawRubberBand(myXmin, myYmin, thePoint.x(), thePoint.y());
-        dragEvent(thePoint.x(), thePoint.y());
+        int dragDx = abs(thePoint.x() - myXmin);
+        int dragDy = abs(thePoint.y() - myYmin);
+        if (dragDx > 5 || dragDy > 5) {
+            m_wasDragged = true;
+            myXmax = thePoint.x();
+            myYmax = thePoint.y();
+            drawRubberBand(myXmin, myYmin, thePoint.x(), thePoint.y());
+            dragEvent(thePoint.x(), thePoint.y());
+        }
     }
 
     if (theFlags & Qt::ControlModifier) {
@@ -1029,7 +1329,7 @@ void OccView::reset(void)
 void OccView::cancelSketch(void)
 {
     if (myCurrentMode >= CurAction3d_Sketch_DrawPoint &&
-        myCurrentMode <= CurAction3d_Sketch_DrawArc) {
+        myCurrentMode <= CurAction3d_Sketch_DrawRectangle) {
         myCurrentMode = CurAction3d_DynamicRotation;
         m_sketchClickCount = 0;
         setCursor(Qt::ArrowCursor);
@@ -1252,6 +1552,7 @@ void OccView::selectShape(const Handle(AIS_Shape)& shape)
     Handle(Prs3d_Drawer) highlightStyle = new Prs3d_Drawer();
     highlightStyle->SetColor(Quantity_NOC_GREEN);
     myContext->HilightWithColor(shape, highlightStyle, Standard_True);
+    mySelectedShape = shape;
 }
 
 void OccView::zoom(void)

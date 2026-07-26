@@ -1,4 +1,4 @@
-#include "LzzCad.h"
+﻿#include "LzzCad.h"
 #include "view.h"
 #include <QAction>
 #include <QLabel>
@@ -27,6 +27,15 @@
 #include <GeomAPI_IntCS.hxx>
 #include <Graphic3d_Camera.hxx>
 #include <Quantity_Color.hxx>
+#include <BRepAlgoAPI_Fuse.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
+#include <BRepAlgoAPI_Common.hxx>
+#include <Bnd_Box.hxx>
+#include <BRepBndLib.hxx>
+#include <Standard_Failure.hxx>
+#include <Standard_ErrorHandler.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopAbs_ShapeEnum.hxx>
 
 LzzCad::LzzCad(QWidget* parent)
     : SARibbonMainWindow(parent)
@@ -147,7 +156,7 @@ void LzzCad::createCentralWidget()
             case ShapeType::Extrude: m_occViewModel->addShapeWithType(shape, type); break;
             case ShapeType::Revolve: m_occViewModel->addShapeWithType(shape, type); break;
             case ShapeType::Sweep: m_occViewModel->addShapeWithType(shape, type); break;
-            default: m_occViewModel->addShape(shape); break;
+            default: m_occViewModel->addShapeWithType(shape, type); break;
             }
         }
     });
@@ -483,15 +492,19 @@ void LzzCad::createSketchCategory(SARibbonBar* ribbon)
     
     QAction* polylineAction = new QAction(loadIcon("polyline"), "Polyline", this);
     curvePanel->addLargeAction(polylineAction);
+    connect(polylineAction, &QAction::triggered, this, &LzzCad::onSketchPolyline);
     
     QAction* splineAction = new QAction(loadIcon("spline"), "Spline", this);
     curvePanel->addLargeAction(splineAction);
+    connect(splineAction, &QAction::triggered, this, &LzzCad::onSketchSpline);
     
     QAction* ellipseAction = new QAction(loadIcon("ellipse"), "Ellipse", this);
     curvePanel->addLargeAction(ellipseAction);
+    connect(ellipseAction, &QAction::triggered, this, &LzzCad::onSketchEllipse);
     
     QAction* rectangleAction = new QAction(loadIcon("rectangle"), "Rectangle", this);
     curvePanel->addLargeAction(rectangleAction);
+    connect(rectangleAction, &QAction::triggered, this, &LzzCad::onSketchRectangle);
 }
 
 // Model category: 3D modeling operations
@@ -557,12 +570,15 @@ void LzzCad::createModelCategory(SARibbonBar* ribbon)
     
     QAction* fuseAction = new QAction(loadIcon("union"), "Union", this);
     booleanPanel->addLargeAction(fuseAction);
+    connect(fuseAction, &QAction::triggered, this, &LzzCad::onBooleanUnion);
     
     QAction* cutAction = new QAction(loadIcon("cut"), "Cut", this);
     booleanPanel->addLargeAction(cutAction);
+    connect(cutAction, &QAction::triggered, this, &LzzCad::onBooleanCut);
     
     QAction* intersectAction = new QAction(loadIcon("intersect"), "Intersect", this);
     booleanPanel->addLargeAction(intersectAction);
+    connect(intersectAction, &QAction::triggered, this, &LzzCad::onBooleanIntersect);
 }
 
 // View category: view manipulation and display
@@ -1134,6 +1150,50 @@ void LzzCad::onSketchArc()
     }
 }
 
+
+void LzzCad::onSketchPolyline()
+{
+    if (m_occViewModel) {
+        m_occViewModel->viewTop();
+    }
+    if (m_occView) {
+        m_occView->startSketchPolylineMode();
+        addLogMessage("[Sketch] Polyline mode: Left-click to add points, right-click or Enter to finish");
+    }
+}
+
+void LzzCad::onSketchSpline()
+{
+    if (m_occViewModel) {
+        m_occViewModel->viewTop();
+    }
+    if (m_occView) {
+        m_occView->startSketchSplineMode();
+        addLogMessage("[Sketch] Spline mode: Left-click to add control points, right-click or Enter to finish");
+    }
+}
+
+void LzzCad::onSketchEllipse()
+{
+    if (m_occViewModel) {
+        m_occViewModel->viewTop();
+    }
+    if (m_occView) {
+        m_occView->startSketchEllipseMode();
+        addLogMessage("[Sketch] Ellipse mode: Click to set center, click again to set major radius");
+    }
+}
+
+void LzzCad::onSketchRectangle()
+{
+    if (m_occViewModel) {
+        m_occViewModel->viewTop();
+    }
+    if (m_occView) {
+        m_occView->startSketchRectangleMode();
+        addLogMessage("[Sketch] Rectangle mode: Click to set first corner, click again to set opposite corner");
+    }
+}
 void LzzCad::onCreateBox()
 {
     if (m_occViewModel) {
@@ -1200,6 +1260,250 @@ void LzzCad::onCreateSweep()
         m_occView->startSweepMode();
         addLogMessage("[Feature] Sweep mode: Click to select profile, then click to select path");
     }
+}
+
+void LzzCad::onBooleanUnion()
+{
+    performBoolean(BooleanOp::Bool_Union, "Union");
+}
+
+void LzzCad::onBooleanCut()
+{
+    performBoolean(BooleanOp::Bool_Cut, "Cut");
+}
+
+void LzzCad::onBooleanIntersect()
+{
+    performBoolean(BooleanOp::Bool_Intersect, "Intersect");
+}
+
+bool LzzCad::performBoolean(BooleanOp op, const QString& opName)
+{
+    if (!m_occView || !m_geometryModel || !m_modelTree || !m_commandManager)
+    {
+        addLogMessage("[Boolean] Error: Missing required components");
+        return false;
+    }
+
+    Handle(AIS_InteractiveContext) ctx = m_occView->getContext();
+    if (ctx.IsNull())
+    {
+        addLogMessage("[Boolean] Error: Context is null");
+        return false;
+    }
+
+    // Get all selected shapes
+    QList<Handle(AIS_InteractiveObject)> selectedObjs = m_occView->getSelectedObjects();
+    if (selectedObjs.size() < 2)
+    {
+        QMessageBox::warning(this, tr("Boolean Operation"),
+            tr("Please select at least 2 shapes to perform a boolean operation.\n\n"
+               "Current selection: %1 shape(s)").arg(selectedObjs.size()));
+        addLogMessage(QString("[Boolean] %1 failed: only %2 shape(s) selected (need 2+)").arg(opName).arg(selectedObjs.size()));
+        return false;
+    }
+
+    // Get the first two selected shapes as AIS_Shape
+    Handle(AIS_Shape) aisShape1 = Handle(AIS_Shape)::DownCast(selectedObjs[0]);
+    Handle(AIS_Shape) aisShape2 = Handle(AIS_Shape)::DownCast(selectedObjs[1]);
+
+    if (aisShape1.IsNull() || aisShape2.IsNull())
+    {
+        addLogMessage("[Boolean] Error: Selected objects are not valid AIS_Shapes");
+        return false;
+    }
+
+    TopoDS_Shape shape1 = aisShape1->Shape();
+    TopoDS_Shape shape2 = aisShape2->Shape();
+
+    if (shape1.IsNull() || shape2.IsNull())
+    {
+        addLogMessage("[Boolean] Error: Shapes are null");
+        return false;
+    }
+
+    // Perform the boolean operation with error handling
+    TopoDS_Shape resultShape;
+    try
+    {
+        switch (op)
+        {
+        case BooleanOp::Bool_Union:
+        {
+            BRepAlgoAPI_Fuse maker(shape1, shape2);
+            maker.Build();
+            if (!maker.IsDone())
+            {
+                addLogMessage("[Boolean] Union operation failed");
+                QMessageBox::warning(this, tr("Boolean Operation"), tr("Union operation failed."));
+                return false;
+            }
+            resultShape = maker.Shape();
+            break;
+        }
+        case BooleanOp::Bool_Cut:
+        {
+            BRepAlgoAPI_Cut maker(shape1, shape2);
+            maker.Build();
+            if (!maker.IsDone())
+            {
+                addLogMessage("[Boolean] Cut operation failed");
+                QMessageBox::warning(this, tr("Boolean Operation"), tr("Cut operation failed."));
+                return false;
+            }
+            resultShape = maker.Shape();
+
+            // Check if the cut actually modified anything (non-overlapping shapes)
+            // Compare bounding boxes of original shape1 and result
+            if (!resultShape.IsNull())
+            {
+                Bnd_Box box1, boxResult;
+                BRepBndLib::Add(shape1, box1);
+                BRepBndLib::Add(resultShape, boxResult);
+                if (!box1.IsVoid() && !boxResult.IsVoid())
+                {
+                    Standard_Real xMin1, yMin1, zMin1, xMax1, yMax1, zMax1;
+                    Standard_Real xMinR, yMinR, zMinR, xMaxR, yMaxR, zMaxR;
+                    box1.Get(xMin1, yMin1, zMin1, xMax1, yMax1, zMax1);
+                    boxResult.Get(xMinR, yMinR, zMinR, xMaxR, yMaxR, zMaxR);
+                    double eps = 0.001;
+                    if (fabs(xMin1 - xMinR) < eps && fabs(yMin1 - yMinR) < eps && fabs(zMin1 - zMinR) < eps &&
+                        fabs(xMax1 - xMaxR) < eps && fabs(yMax1 - yMaxR) < eps && fabs(zMax1 - zMaxR) < eps)
+                    {
+                        addLogMessage("[Boolean] Cut result is identical to original (shapes do not overlap)");
+                        QMessageBox::warning(this, tr("Boolean Operation"),
+                            tr("The Cut operation did not modify the shape.\n\n"
+                               "The two shapes do not overlap, so nothing was cut away.\n"
+                               "Try moving the shapes to overlap each other before cutting."));
+                        return false;
+                    }
+                }
+            }
+            break;
+        }
+        case BooleanOp::Bool_Intersect:
+        {
+            BRepAlgoAPI_Common maker(shape1, shape2);
+            maker.Build();
+            if (!maker.IsDone())
+            {
+                addLogMessage("[Boolean] Intersect operation failed");
+                QMessageBox::warning(this, tr("Boolean Operation"), tr("Intersect operation failed."));
+                return false;
+            }
+            resultShape = maker.Shape();
+            break;
+        }
+        }
+    }
+    catch (Standard_Failure& e)
+    {
+        QString errMsg = QString::fromUtf8(e.GetMessageString());
+        addLogMessage(QString("[Boolean] Exception: %1").arg(errMsg));
+        QMessageBox::warning(this, tr("Boolean Error"), tr("Boolean operation failed: %1").arg(errMsg));
+        return false;
+    }
+
+    if (resultShape.IsNull())
+    {
+        addLogMessage("[Boolean] Result shape is null");
+        QMessageBox::warning(this, tr("Boolean Operation"),
+            tr("The %1 operation produced an empty result.\n\n"
+               "Possible reasons:\n"
+               "- Shapes do not overlap (Intersect)\n"
+               "- Cut shape completely contains the target (Cut)\n"
+               "- Shapes are separate (Union might still work)\n\n"
+               "Try selecting different shapes or adjusting their positions.").arg(opName));
+        return false;
+    }
+
+    // Check if the result has any actual sub-shapes (empty intersection/cut)
+    {
+        TopExp_Explorer exp(resultShape, TopAbs_SOLID);
+        TopExp_Explorer expFace(resultShape, TopAbs_FACE);
+        if (!exp.More() && !expFace.More())
+        {
+            addLogMessage(QString("[Boolean] %1 result has no sub-shapes (empty result)").arg(opName));
+            QMessageBox::warning(this, tr("Boolean Operation"),
+                tr("The %1 operation produced an empty result.\n\n"
+                   "Possible reasons:\n"
+                   "- Shapes do not overlap (Intersect)\n"
+                   "- Cut shape completely contains the target (Cut)\n"
+                   "- Shapes are separate (Union might still work)\n\n"
+                   "Try selecting different shapes or adjusting their positions.").arg(opName));
+            return false;
+        }
+    }
+
+    // Save names before removing originals (for model tree cleanup)
+    QString name1 = m_geometryModel->getShapeName(aisShape1);
+    QString name2 = m_geometryModel->getShapeName(aisShape2);
+
+    // Remove original shapes from context
+    ctx->Erase(aisShape1, Standard_False);
+    ctx->Erase(aisShape2, Standard_False);
+
+    // Remove from model
+    m_geometryModel->removeShape(aisShape1);
+    m_geometryModel->removeShape(aisShape2);
+
+    // Remove from model tree
+    removeModelTreeItem(name1);
+    removeModelTreeItem(name2);
+
+    // Create the new AIS_Shape for the result
+    Handle(AIS_Shape) resultAIS = new AIS_Shape(resultShape);
+    resultAIS->SetColor(Quantity_NOC_YELLOW);
+    resultAIS->SetDisplayMode(AIS_Shaded);
+    ctx->Display(resultAIS, Standard_True);
+    ctx->ClearSelected(Standard_False);
+    ctx->UpdateCurrentViewer();
+
+    // Record in command manager for undo
+    if (m_commandManager)
+    {
+        m_commandManager->executeCommand(new DisplayShapeCommand(ctx, resultAIS,
+            QString("Boolean %1").arg(opName)));
+    }
+
+    // Add to model
+    m_geometryModel->addShape(resultAIS, ShapeType::Model,
+        QString("%1_Result").arg(opName));
+
+    // Add to model tree
+    QString resultName = m_geometryModel->getShapeNames().back();
+    addModelTreeItem(resultName);
+
+    // Auto-select the result in model tree and update PropertyPanel
+    if (m_modelTree)
+    {
+        QTreeWidgetItem* rootItem = m_modelTree->topLevelItem(0);
+        if (rootItem)
+        {
+            for (int i = 0; i < rootItem->childCount(); ++i)
+            {
+                QTreeWidgetItem* child = rootItem->child(i);
+                if (child->text(0) == resultName)
+                {
+                    m_modelTree->setCurrentItem(child);
+                    m_occView->selectShape(resultAIS);
+                    if (m_propertyPanel)
+                    {
+                        m_propertyPanel->updateSelection(resultAIS, resultName, ShapeType::Model);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    addLogMessage(QString("[Boolean] %1 completed: %2 + %3 -> %4")
+        .arg(opName).arg(name1).arg(name2).arg(resultName));
+
+    // Fit all to show the new result
+    m_occView->fitAll();
+
+    return true;
 }
 
 void LzzCad::onDeleteSelected()

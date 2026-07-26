@@ -14,6 +14,9 @@
 #include <Geom_Circle.hxx>
 #include <Geom_Line.hxx>
 #include <Geom_TrimmedCurve.hxx>
+#include <Geom_BSplineCurve.hxx>
+#include <gp_Elips.hxx>
+#include <Geom_Ellipse.hxx>
 #include <Standard_Type.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Dir.hxx>
@@ -566,6 +569,168 @@ void PropertyPanel::populateSketchProperties(const Handle(AIS_Shape)& shape, Sha
                 m_sketchLayout->addRow(eaName, endAngle);
                 }
             }
+        }
+        break;
+    }
+
+    case ShapeType::Polyline:
+    {
+        TopExp_Explorer exp(topoShape, TopAbs_VERTEX);
+        int vCount = 0;
+        while (exp.More())
+        {
+            TopoDS_Shape& shapeRef = const_cast<TopoDS_Shape&>(exp.Current());
+            gp_Pnt pnt = BRep_Tool::Pnt(*(TopoDS_Vertex*)&shapeRef);
+            QLabel* ptName = new QLabel(QString("Pt%1:").arg(++vCount));
+            ptName->setStyleSheet(labelStyle);
+            QLabel* ptLabel = new QLabel(QString("(%1, %2, %3)")
+                .arg(QString::number(pnt.X(), 'f', 3))
+                .arg(QString::number(pnt.Y(), 'f', 3))
+                .arg(QString::number(pnt.Z(), 'f', 3)));
+            ptLabel->setStyleSheet(valueStyle);
+            m_sketchLayout->addRow(ptName, ptLabel);
+            exp.Next();
+        }
+        QLabel* segName = new QLabel("Segments:");
+        segName->setStyleSheet(labelStyle);
+        QLabel* segLabel = new QLabel(QString::number(qMax(0, vCount - 1)));
+        segLabel->setStyleSheet(valueStyle);
+        m_sketchLayout->addRow(segName, segLabel);
+        break;
+    }
+
+    case ShapeType::Spline:
+    {
+        TopExp_Explorer exp(topoShape, TopAbs_EDGE);
+        if (exp.More())
+        {
+            TopoDS_Shape& shapeRef = const_cast<TopoDS_Shape&>(exp.Current());
+            TopoDS_Edge& edge = *(TopoDS_Edge*)&shapeRef;
+            Standard_Real first, last;
+            Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, first, last);
+            
+            if (!curve.IsNull() && curve->IsKind(STANDARD_TYPE(Geom_BSplineCurve)))
+            {
+                Handle(Geom_BSplineCurve) bspline = Handle(Geom_BSplineCurve)::DownCast(curve);
+                int nbPoles = bspline->NbPoles();
+                int nbKnots = bspline->NbKnots();
+                int degree = bspline->Degree();
+
+                QLabel* degName = new QLabel("Degree:");
+                degName->setStyleSheet(labelStyle);
+                QLabel* degLabel = new QLabel(QString::number(degree));
+                degLabel->setStyleSheet(valueStyle);
+                m_sketchLayout->addRow(degName, degLabel);
+
+                QLabel* cpName = new QLabel("Control Points:");
+                cpName->setStyleSheet(labelStyle);
+                QLabel* cpLabel = new QLabel(QString::number(nbPoles));
+                cpLabel->setStyleSheet(valueStyle);
+                m_sketchLayout->addRow(cpName, cpLabel);
+
+                // Show control point positions
+                for (int i = 1; i <= nbPoles; ++i)
+                {
+                    gp_Pnt cp = bspline->Pole(i);
+                    QLabel* cptName = new QLabel(QString("CP%1:").arg(i));
+                    cptName->setStyleSheet(labelStyle);
+                    QLabel* cptLabel = new QLabel(QString("(%1, %2, %3)")
+                        .arg(QString::number(cp.X(), 'f', 3))
+                        .arg(QString::number(cp.Y(), 'f', 3))
+                        .arg(QString::number(cp.Z(), 'f', 3)));
+                    cptLabel->setStyleSheet(valueStyle);
+                    m_sketchLayout->addRow(cptName, cptLabel);
+                }
+            }
+        }
+        break;
+    }
+
+    case ShapeType::Ellipse:
+    {
+        TopExp_Explorer exp(topoShape, TopAbs_EDGE);
+        if (exp.More())
+        {
+            TopoDS_Shape& shapeRef = const_cast<TopoDS_Shape&>(exp.Current());
+            TopoDS_Edge& edge = *(TopoDS_Edge*)&shapeRef;
+            Standard_Real first, last;
+            Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, first, last);
+            
+            if (!curve.IsNull() && curve->IsKind(STANDARD_TYPE(Geom_Ellipse)))
+            {
+                Handle(Geom_Ellipse) ellipse = Handle(Geom_Ellipse)::DownCast(curve);
+                gp_Elips elips = ellipse->Elips();
+                gp_Pnt center = elips.Location();
+                double majorR = elips.MajorRadius();
+                double minorR = elips.MinorRadius();
+
+                QLabel* cxName = new QLabel("Center X:");
+                cxName->setStyleSheet(labelStyle);
+                QLabel* centerX = new QLabel(QString::number(center.X(), 'f', 3));
+                centerX->setStyleSheet(valueStyle);
+                m_sketchLayout->addRow(cxName, centerX);
+
+                QLabel* cyName = new QLabel("Center Y:");
+                cyName->setStyleSheet(labelStyle);
+                QLabel* centerY = new QLabel(QString::number(center.Y(), 'f', 3));
+                centerY->setStyleSheet(valueStyle);
+                m_sketchLayout->addRow(cyName, centerY);
+
+                QLabel* maName = new QLabel("Major Radius:");
+                maName->setStyleSheet(labelStyle);
+                QLabel* majorLabel = new QLabel(QString::number(majorR, 'f', 3));
+                majorLabel->setStyleSheet(valueStyle);
+                m_sketchLayout->addRow(maName, majorLabel);
+
+                QLabel* miName = new QLabel("Minor Radius:");
+                miName->setStyleSheet(labelStyle);
+                QLabel* minorLabel = new QLabel(QString::number(minorR, 'f', 3));
+                minorLabel->setStyleSheet(valueStyle);
+                m_sketchLayout->addRow(miName, minorLabel);
+            }
+        }
+        break;
+    }
+
+    case ShapeType::Rectangle:
+    {
+        TopExp_Explorer exp(topoShape, TopAbs_VERTEX);
+        int vCount = 0;
+        gp_Pnt corners[4];
+        while (exp.More() && vCount < 4)
+        {
+            TopoDS_Shape& shapeRef = const_cast<TopoDS_Shape&>(exp.Current());
+            gp_Pnt pnt = BRep_Tool::Pnt(*(TopoDS_Vertex*)&shapeRef);
+            corners[vCount++] = pnt;
+            exp.Next();
+        }
+        for (int i = 0; i < vCount; ++i)
+        {
+            QLabel* corName = new QLabel(QString("Corner %1:").arg(i + 1));
+            corName->setStyleSheet(labelStyle);
+            QLabel* corLabel = new QLabel(QString("(%1, %2, %3)")
+                .arg(QString::number(corners[i].X(), 'f', 3))
+                .arg(QString::number(corners[i].Y(), 'f', 3))
+                .arg(QString::number(corners[i].Z(), 'f', 3)));
+            corLabel->setStyleSheet(valueStyle);
+            m_sketchLayout->addRow(corName, corLabel);
+        }
+        if (vCount >= 2)
+        {
+            double w = fabs(corners[0].X() - corners[1].X());
+            double h = fabs(corners[0].Y() - corners[2].Y());
+
+            QLabel* wName = new QLabel("Width:");
+            wName->setStyleSheet(labelStyle);
+            QLabel* wLabel = new QLabel(QString::number(w, 'f', 3));
+            wLabel->setStyleSheet(valueStyle);
+            m_sketchLayout->addRow(wName, wLabel);
+
+            QLabel* hName = new QLabel("Height:");
+            hName->setStyleSheet(labelStyle);
+            QLabel* hLabel = new QLabel(QString::number(h, 'f', 3));
+            hLabel->setStyleSheet(valueStyle);
+            m_sketchLayout->addRow(hName, hLabel);
         }
         break;
     }

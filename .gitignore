@@ -62,3 +62,6 @@ GIT_UPLOAD_GUIDE.md
 # Upload scripts (local only)
 upload.bat
 upload.sh
+
+# Blog post (local only)
+BLOG_POST.md

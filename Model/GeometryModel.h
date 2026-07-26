@@ -14,6 +14,9 @@ enum class ShapeType {
     Circle,
     Arc,
     Ellipse,
+    Spline,
+    Polyline,
+    Rectangle,
     Box,
     Sphere,
     Cylinder,
@@ -131,6 +134,10 @@ private:
         static int revolveCount = 0;
         static int sweepCount = 0;
         static int modelCount = 0;
+        static int ellipseCount = 0;
+        static int polylineCount = 0;
+        static int rectangleCount = 0;
+        static int splineCount = 0;
         
         switch (type) {
             case ShapeType::Point: return QString("Point_%1").arg(++pointCount);
@@ -145,6 +152,10 @@ private:
             case ShapeType::Revolve: return QString("Revolve_%1").arg(++revolveCount);
             case ShapeType::Sweep: return QString("Sweep_%1").arg(++sweepCount);
             case ShapeType::Model: return QString("Model_%1").arg(++modelCount);
+            case ShapeType::Ellipse: return QString("Ellipse_%1").arg(++ellipseCount);
+            case ShapeType::Polyline: return QString("Polyline_%1").arg(++polylineCount);
+            case ShapeType::Rectangle: return QString("Rectangle_%1").arg(++rectangleCount);
+            case ShapeType::Spline: return QString("Spline_%1").arg(++splineCount);
             default: return QString("Shape_%1").arg(m_shapes.size());
         }
     }
